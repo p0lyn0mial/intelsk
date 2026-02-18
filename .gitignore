@@ -1,0 +1,15 @@
+# Test image datasets
+experiments/test_faces/
+experiments/test_images/
+experiments/test_images_large/
+
+# Runtime data
+data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# macOS
+.DS_Store
