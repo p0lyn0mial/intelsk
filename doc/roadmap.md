@@ -25,9 +25,9 @@ camera integration is deferred to Phase 9.
 
 ### 2.1 Go Project Setup
 - [ ] `go mod init` in `backend/`
-- [ ] Add dependencies: chi, yaml.v3
-- [ ] YAML config loader with `${ENV_VAR}` substitution (`backend/config/config.go`)
-- [ ] Create sample `config/cameras.yaml` and `config/extraction.yaml`
+- [ ] Add dependencies: yaml.v3, goimagehash
+- [ ] Plain YAML config loader (`backend/config/config.go`)
+- [ ] Create sample `config/app.yaml` and `config/extraction.yaml`
 - [ ] Define shared types (`backend/models/types.go`)
 
 ### 2.2 Frame Extractor (`backend/services/extractor.go`)

@@ -191,8 +191,7 @@ intelsk/
 
 ## Configuration
 
-All configuration lives in `config/` as YAML files. Sensitive values (passwords)
-are referenced via environment variables using `${VAR_NAME}` syntax, resolved at startup.
+All configuration lives in `config/` as YAML files.
 
 ```yaml
 # config/app.yaml
