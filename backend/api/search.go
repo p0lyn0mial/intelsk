@@ -106,11 +106,14 @@ func buildFrameURL(framePath string) string {
 
 // buildVideoURL encodes a source_video path as a video ID URL.
 // "videos/front_door/2026-02-18/1400.mp4" → "/api/videos/front_door--2026-02-18--1400/play"
+// Also handles absolute paths by extracting the part after "videos/"
 func buildVideoURL(sourceVideo string) string {
 	sv := filepath.ToSlash(sourceVideo)
 
-	// Strip "videos/" prefix if present
-	sv = strings.TrimPrefix(sv, "videos/")
+	// Extract the part after "videos/" (handles both relative and absolute paths)
+	if idx := strings.Index(sv, "videos/"); idx >= 0 {
+		sv = sv[idx+len("videos/"):]
+	}
 
 	// Drop .mp4 extension
 	sv = strings.TrimSuffix(sv, ".mp4")
