@@ -8,6 +8,8 @@ import (
 )
 
 type AppSettings struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
 	DataDir  string `yaml:"data_dir"`
 	LogLevel string `yaml:"log_level"`
 }
@@ -36,12 +38,17 @@ type CLIPSettings struct {
 	BatchSize int `yaml:"batch_size"`
 }
 
+type ProcessSettings struct {
+	HistoryPath string `yaml:"history_path"`
+}
+
 type AppConfig struct {
 	App        AppSettings        `yaml:"app"`
 	Extraction ExtractionSettings `yaml:"extraction"`
 	MLService  MLServiceSettings  `yaml:"mlservice"`
 	Storage    StorageSettings    `yaml:"storage"`
 	CLIP       CLIPSettings       `yaml:"clip"`
+	Process    ProcessSettings    `yaml:"process"`
 }
 
 // LoadConfig reads and parses two YAML files (app config and extraction config)
@@ -57,6 +64,12 @@ func LoadConfig(appYaml, extractionYaml string) (*AppConfig, error) {
 		return nil, fmt.Errorf("loading %s: %w", extractionYaml, err)
 	}
 
+	if cfg.App.Host == "" {
+		cfg.App.Host = "0.0.0.0"
+	}
+	if cfg.App.Port == 0 {
+		cfg.App.Port = 8000
+	}
 	if cfg.App.DataDir == "" {
 		cfg.App.DataDir = "data"
 	}
@@ -80,6 +93,9 @@ func LoadConfig(appYaml, extractionYaml string) (*AppConfig, error) {
 	}
 	if cfg.CLIP.BatchSize == 0 {
 		cfg.CLIP.BatchSize = 32
+	}
+	if cfg.Process.HistoryPath == "" {
+		cfg.Process.HistoryPath = "data/process_history.json"
 	}
 
 	return cfg, nil

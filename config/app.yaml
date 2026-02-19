@@ -1,4 +1,6 @@
 app:
+  host: 0.0.0.0
+  port: 8000
   data_dir: data
   log_level: info
 
@@ -10,3 +12,6 @@ storage:
 
 clip:
   batch_size: 32
+
+process:
+  history_path: data/process_history.json

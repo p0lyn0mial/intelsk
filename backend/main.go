@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/intelsk/backend/cmd/server"
 	"github.com/intelsk/backend/config"
 	"github.com/intelsk/backend/services"
 )
@@ -31,6 +32,8 @@ func main() {
 		runIndex(os.Args[2:])
 	case "search":
 		runSearch(os.Args[2:])
+	case "serve":
+		runServe(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", command)
 		printUsage()
@@ -46,6 +49,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  process   Extract frames from all videos for a camera+date")
 	fmt.Fprintln(os.Stderr, "  index     Index extracted frames via CLIP embeddings")
 	fmt.Fprintln(os.Stderr, "  search    Search indexed frames by text query")
+	fmt.Fprintln(os.Stderr, "  serve     Start the HTTP API server")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Common flags:")
 	fmt.Fprintln(os.Stderr, "  -root     Project root directory (default: parent of backend/)")
@@ -109,6 +113,9 @@ func loadAppConfig() *config.AppConfig {
 	}
 	if !filepath.IsAbs(cfg.Storage.DBPath) {
 		cfg.Storage.DBPath = filepath.Join(root, cfg.Storage.DBPath)
+	}
+	if !filepath.IsAbs(cfg.Process.HistoryPath) {
+		cfg.Process.HistoryPath = filepath.Join(root, cfg.Process.HistoryPath)
 	}
 
 	return cfg
@@ -307,4 +314,13 @@ func runSearch(args []string) {
 
 	fmt.Printf("Results for query: %q\n\n", *text)
 	fmt.Print(services.FormatResultsTable(results))
+}
+
+func runServe(args []string) {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	addRootFlag(fs)
+	fs.Parse(args)
+
+	cfg := loadAppConfig()
+	server.Start(cfg)
 }
