@@ -172,6 +172,46 @@ Two-phase UI on a single page:
 **No manual upload** — enrollment is discovery-only. Faces are found in
 processed frames and presented for naming.
 
+## Responsive / Mobile
+
+The UI must be fully usable on phones and tablets. Tailwind's responsive
+utilities (`sm:`, `md:`, `lg:`) handle all breakpoints — no separate mobile
+build is needed.
+
+### Breakpoint strategy
+
+| Breakpoint | Grid columns | Notes |
+|---|---|---|
+| < 640px (mobile) | 1–2 | Single-column forms, 2-col result grid |
+| 640–1024px (tablet) | 2–3 | Side-by-side form fields, 3-col results |
+| > 1024px (desktop) | 3–4 | Full layout as shown in wireframes below |
+
+### Component adaptations
+
+- **Nav bar**: collapses to a hamburger menu on mobile; language toggle and nav
+  links move into a slide-out drawer
+- **Camera selector**: checkboxes stack vertically on mobile instead of inline
+- **Date picker**: full-width input on mobile
+- **Search bar**: full-width, search button below the input on mobile
+- **Results grid**: 2 columns on mobile (thumbnails scale down), 3–4 on wider
+  screens. Camera name and score move below the thumbnail instead of beside it
+- **Play button overlay**: always visible on mobile (no hover state on touch
+  devices); uses `@media (hover: none)` to keep the play icon permanently shown
+  at reduced opacity
+- **Video player modal**: full-screen on mobile (no side margins), with a
+  prominent close button in the top corner. The `<video>` element uses `width: 100%`
+  and maintains aspect ratio
+- **Face cluster review**: clusters stack vertically on mobile; representative
+  face thumbnails scroll horizontally within each cluster card
+- **Camera dashboard**: 1-column snapshot grid on mobile, 2 on tablet
+
+### Touch considerations
+
+- All tap targets are at least 44×44px (Apple HIG / WCAG minimum)
+- Swipe gestures are not used — standard scroll and tap only
+- Video player uses native HTML5 controls on mobile (better touch UX than
+  custom controls)
+
 ## Layout
 
 ```

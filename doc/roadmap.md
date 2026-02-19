@@ -190,7 +190,18 @@ Goal: React frontend for the process + text search workflow.
 - [ ] React Router for page navigation
 - [ ] All UI strings via `useTranslation()` hook (no hardcoded text)
 
-### 5.7 Verification
+### 5.7 Responsive / Mobile
+- [ ] Responsive grid: 2-col results on mobile, 3–4 on desktop (Tailwind `sm:`/`md:`/`lg:`)
+- [ ] Hamburger nav menu on mobile with slide-out drawer
+- [ ] Full-width form inputs (camera selector, date picker, search bar) on mobile
+- [ ] Play button overlay always visible on touch devices (`@media (hover: none)`)
+- [ ] Video player modal full-screen on mobile
+- [ ] Face cluster cards stack vertically on mobile, horizontal scroll for thumbnails
+- [ ] Camera dashboard: 1-col grid on mobile
+- [ ] All tap targets at least 44×44px
+- [ ] Verification: test on iOS Safari and Android Chrome (or emulator)
+
+### 5.8 Verification
 - [ ] Full end-to-end: select camera + date → process → search → view results
 - [ ] Camera dashboard shows live snapshots
 
