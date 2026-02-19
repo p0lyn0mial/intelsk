@@ -278,12 +278,12 @@ date-fns
 ### Phase 1: Design Doc
 - This document and linked component docs.
 
-### Phase 2: Video Downloader + Frame Extractor (Go)
-- Implement Hikvision ISAPI client in Go (HTTP digest auth)
+### Phase 2: Frame Extractor (Go)
 - Implement ffmpeg-based frame extraction (subprocess)
 - Implement pHash de-duplication
 - YAML config loading
 - CLI entry point for manual testing
+- Videos are manually placed in `data/videos/` (Hikvision download deferred to Phase 9)
 
 ### Phase 3: Python ML Sidecar + Indexing
 - Python FastAPI sidecar with /encode/image, /encode/text, /detect/faces
@@ -296,10 +296,9 @@ date-fns
 ### Phase 4: Go Backend API + Pipeline Orchestration
 - Go HTTP server with process + search + camera + face endpoints
 - SQLite initialization on startup
-- On-demand pipeline: download → extract → call ML sidecar → store in SQLite
+- On-demand pipeline: extract → call ML sidecar → store in SQLite
 - SSE progress streaming to frontend
 - Process history tracking (skip already-indexed camera+date combos)
-- Camera snapshot proxy
 - Face registry CRUD
 - Static file serving for frames/videos
 
@@ -311,10 +310,15 @@ date-fns
 
 ### Phase 6: Polish + Hardening
 - Authentication (API key or basic auth middleware in Go)
-- Error handling and retry logic for camera connections
+- Error handling and retry logic
 - Performance tuning (batch sizes, GPU acceleration)
 - Automated data retention cleanup (configurable N-day rolling window)
 - Docker Compose for deployment (Go backend + ML sidecar + frontend)
+
+### Phase 9: Hikvision Camera Integration
+- Hikvision ISAPI client in Go (HTTP digest auth, chunked download)
+- Automated video download wired into the pipeline
+- Camera snapshot proxy for live dashboard
 
 ## Data Lifecycle
 

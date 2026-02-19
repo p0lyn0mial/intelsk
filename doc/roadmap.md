@@ -16,10 +16,12 @@
 
 ---
 
-## Phase 2: Video Downloader + Frame Extractor (Go)
+## Phase 2: Frame Extractor (Go)
 
-Goal: download video from a Hikvision camera for a given date and extract frames,
-runnable from the command line.
+Goal: extract frames from MP4 video files, runnable from the command line.
+Videos are manually placed in `data/videos/{camera_id}/{date}/{HH}00.mp4`
+(e.g., download any MP4 from the internet for development). The Hikvision
+camera integration is deferred to Phase 9.
 
 ### 2.1 Go Project Setup
 - [ ] `go mod init` in `backend/`
@@ -28,18 +30,7 @@ runnable from the command line.
 - [ ] Create sample `config/cameras.yaml` and `config/extraction.yaml`
 - [ ] Define shared types (`backend/models/types.go`)
 
-### 2.2 Hikvision ISAPI Client (`backend/services/downloader.go`)
-- [ ] HTTP Digest Auth using Go's `net/http` + digest auth library
-- [ ] `SearchRecordings(camera, start, end)` — POST to `/ISAPI/ContentMgmt/search`,
-      parse XML response
-- [ ] `DownloadClip(camera, start, end, outputPath)` — download via ISAPI or
-      RTSP+ffmpeg fallback
-- [ ] `GetSnapshot(camera)` — GET single frame from camera
-- [ ] Chunked download: split date range into 1-hour segments
-- [ ] Skip existing files (resume support)
-- [ ] Error handling: connection timeouts, auth failures, no recordings found
-
-### 2.3 Frame Extractor (`backend/services/extractor.go`)
+### 2.2 Frame Extractor (`backend/services/extractor.go`)
 - [ ] `ExtractFramesTime(video, outputDir, intervalSec)` — ffmpeg subprocess
 - [ ] `ExtractFramesMotion(video, outputDir, threshold, minGap)` — ffmpeg + Go
       image analysis (or delegate to a small Python/OpenCV helper)
@@ -47,14 +38,13 @@ runnable from the command line.
 - [ ] Generate `FrameMetadata` for each extracted frame
 - [ ] Write metadata sidecar (JSON manifest per video)
 
-### 2.4 CLI Entry Point (`backend/main.go`)
-- [ ] `go run ./backend download --camera front_door --date 2026-02-18`
+### 2.3 CLI Entry Point (`backend/main.go`)
 - [ ] `go run ./backend extract --video data/videos/front_door/2026-02-18/0800.mp4`
 - [ ] `go run ./backend process --camera front_door --date 2026-02-18`
-      (download + extract in one step)
+      (extract all videos for a camera+date)
 
-### 2.5 Verification
-- [ ] Download a real clip from a test camera
+### 2.4 Verification
+- [ ] Place a test MP4 in `data/videos/test_cam/2026-02-18/0800.mp4`
 - [ ] Extract frames with time-based method, verify output
 - [ ] Verify de-duplication reduces frame count on static footage
 
@@ -125,7 +115,7 @@ Goal: Go HTTP server exposing the full pipeline and text search.
 
 ### 4.4 Camera Endpoints (`backend/api/cameras.go`)
 - [ ] `GET /api/cameras` — list configured cameras (id, name, status)
-- [ ] `GET /api/cameras/{id}/snapshot` — proxy live snapshot from camera
+- [ ] `GET /api/cameras/{id}/snapshot` — placeholder (live proxy deferred to Phase 9)
 
 ### 4.5 Static Files
 - [ ] Serve `data/frames/` and `data/videos/` via `http.FileServer`
@@ -338,3 +328,35 @@ Goal: add person identification alongside text search, using discovery-based enr
 - [ ] Assign a name to a cluster, verify registry updated
 - [ ] Search for an enrolled person, verify results
 - [ ] Index test faces from `experiments/test_faces/`
+
+---
+
+## Phase 9: Hikvision Camera Integration
+
+Goal: automated video download from Hikvision cameras, replacing manually placed
+MP4 files. Until this phase, videos are placed in `data/videos/` manually.
+
+### 9.1 Hikvision ISAPI Client (`backend/services/downloader.go`)
+- [ ] HTTP Digest Auth using Go's `net/http` + digest auth library
+- [ ] `SearchRecordings(camera, start, end)` — POST to `/ISAPI/ContentMgmt/search`,
+      parse XML response
+- [ ] `DownloadClip(camera, start, end, outputPath)` — download via ISAPI or
+      RTSP+ffmpeg fallback
+- [ ] `GetSnapshot(camera)` — GET single frame from camera
+- [ ] Chunked download: split date range into 1-hour segments
+- [ ] Skip existing files (resume support)
+- [ ] Error handling: connection timeouts, auth failures, no recordings found
+
+### 9.2 Pipeline Integration
+- [ ] Wire downloader into `pipeline.go` — download step before extraction
+- [ ] Update `POST /api/process` to trigger download → extract → index
+- [ ] Update CLI: `go run ./backend download --camera front_door --date 2026-02-18`
+
+### 9.3 Camera Snapshot Proxy
+- [ ] `GET /api/cameras/{id}/snapshot` — proxy live snapshot from camera via ISAPI
+- [ ] Camera dashboard shows live snapshots (previously static/placeholder)
+
+### 9.4 Verification
+- [ ] Download a real clip from a test Hikvision camera
+- [ ] Full pipeline: download → extract → index → search
+- [ ] Camera dashboard shows live snapshots from real cameras
