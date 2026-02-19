@@ -1,0 +1,10 @@
+extraction:
+  method: time
+  time_interval_sec: 5
+  motion_threshold: 0.01
+  min_gap_sec: 2.0
+  output_format: jpg
+  output_quality: 85
+  dedup_enabled: true
+  dedup_phash_threshold: 8
+  storage_path: data/frames
