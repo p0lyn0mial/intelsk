@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+torch
+open-clip-torch
+mobileclip
+numpy
+Pillow

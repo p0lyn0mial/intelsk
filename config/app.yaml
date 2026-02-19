@@ -1,3 +1,12 @@
 app:
   data_dir: data
   log_level: info
+
+mlservice:
+  url: http://localhost:8001
+
+storage:
+  db_path: data/intelsk.db
+
+clip:
+  batch_size: 32

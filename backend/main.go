@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/intelsk/backend/config"
 	"github.com/intelsk/backend/services"
@@ -26,6 +27,10 @@ func main() {
 		runExtract(os.Args[2:])
 	case "process":
 		runProcess(os.Args[2:])
+	case "index":
+		runIndex(os.Args[2:])
+	case "search":
+		runSearch(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n", command)
 		printUsage()
@@ -39,6 +44,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "Commands:")
 	fmt.Fprintln(os.Stderr, "  extract   Extract frames from a single video file")
 	fmt.Fprintln(os.Stderr, "  process   Extract frames from all videos for a camera+date")
+	fmt.Fprintln(os.Stderr, "  index     Index extracted frames via CLIP embeddings")
+	fmt.Fprintln(os.Stderr, "  search    Search indexed frames by text query")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "Common flags:")
 	fmt.Fprintln(os.Stderr, "  -root     Project root directory (default: parent of backend/)")
@@ -99,6 +106,9 @@ func loadAppConfig() *config.AppConfig {
 	}
 	if !filepath.IsAbs(cfg.Extraction.StoragePath) {
 		cfg.Extraction.StoragePath = filepath.Join(root, cfg.Extraction.StoragePath)
+	}
+	if !filepath.IsAbs(cfg.Storage.DBPath) {
+		cfg.Storage.DBPath = filepath.Join(root, cfg.Storage.DBPath)
 	}
 
 	return cfg
@@ -203,4 +213,98 @@ func extractVideo(cfg *config.AppConfig, videoPath string) {
 		log.Fatalf("writing manifest: %v", err)
 	}
 	fmt.Printf("Manifest written to %s/manifest.json\n", outputDir)
+}
+
+func runIndex(args []string) {
+	fs := flag.NewFlagSet("index", flag.ExitOnError)
+	camera := fs.String("camera", "", "camera ID (required)")
+	date := fs.String("date", "", "date in YYYY-MM-DD format (required)")
+	addRootFlag(fs)
+	fs.Parse(args)
+
+	if *camera == "" || *date == "" {
+		fmt.Fprintln(os.Stderr, "error: -camera and -date flags are required")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	cfg := loadAppConfig()
+
+	// Resolve frames directory
+	framesDir, err := services.ResolveFramesDir(cfg.Extraction.StoragePath, *camera, *date)
+	if err != nil {
+		log.Fatalf("resolving frames directory: %v", err)
+	}
+
+	// Init ML client and wait for sidecar
+	mlClient := services.NewMLClient(cfg.MLService.URL)
+	fmt.Printf("Waiting for ML sidecar at %s...\n", cfg.MLService.URL)
+	if err := mlClient.WaitForReady(60 * time.Second); err != nil {
+		log.Fatalf("ML sidecar not ready: %v", err)
+	}
+	fmt.Println("ML sidecar ready")
+
+	// Init storage
+	storage, err := services.NewStorage(cfg.Storage.DBPath)
+	if err != nil {
+		log.Fatalf("opening storage: %v", err)
+	}
+	defer storage.Close()
+
+	// Build and run pipeline
+	pipeline := services.NewPipeline(mlClient, storage, cfg.CLIP.BatchSize)
+	progress := make(chan services.ProgressEvent, 10)
+
+	go func() {
+		for ev := range progress {
+			if ev.FramesTotal > 0 {
+				fmt.Printf("[%s] %s — %d/%d frames\n",
+					ev.Stage, ev.Message, ev.FramesDone, ev.FramesTotal)
+			} else {
+				fmt.Printf("[%s] %s\n", ev.Stage, ev.Message)
+			}
+		}
+	}()
+
+	if err := pipeline.IndexFrames(framesDir, progress); err != nil {
+		log.Fatalf("indexing failed: %v", err)
+	}
+	close(progress)
+
+	fmt.Println("Indexing complete")
+}
+
+func runSearch(args []string) {
+	fs := flag.NewFlagSet("search", flag.ExitOnError)
+	text := fs.String("text", "", "text query (required)")
+	camera := fs.String("camera", "", "camera ID filter (optional)")
+	limit := fs.Int("limit", 20, "max results")
+	addRootFlag(fs)
+	fs.Parse(args)
+
+	if *text == "" {
+		fmt.Fprintln(os.Stderr, "error: -text flag is required")
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	cfg := loadAppConfig()
+
+	mlClient := services.NewMLClient(cfg.MLService.URL)
+	if err := mlClient.HealthCheck(); err != nil {
+		log.Fatalf("ML sidecar health check failed: %v", err)
+	}
+
+	var cameraIDs []string
+	if *camera != "" {
+		cameraIDs = []string{*camera}
+	}
+
+	results, err := mlClient.SearchByText(cfg.Storage.DBPath, *text, cameraIDs, "", "", *limit)
+	if err != nil {
+		log.Fatalf("search failed: %v", err)
+	}
+
+	fmt.Printf("Results for query: %q\n\n", *text)
+	fmt.Print(services.FormatResultsTable(results))
 }

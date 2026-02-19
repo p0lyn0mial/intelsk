@@ -24,9 +24,24 @@ type ExtractionSettings struct {
 	StoragePath        string  `yaml:"storage_path"`
 }
 
+type MLServiceSettings struct {
+	URL string `yaml:"url"`
+}
+
+type StorageSettings struct {
+	DBPath string `yaml:"db_path"`
+}
+
+type CLIPSettings struct {
+	BatchSize int `yaml:"batch_size"`
+}
+
 type AppConfig struct {
 	App        AppSettings        `yaml:"app"`
 	Extraction ExtractionSettings `yaml:"extraction"`
+	MLService  MLServiceSettings  `yaml:"mlservice"`
+	Storage    StorageSettings    `yaml:"storage"`
+	CLIP       CLIPSettings       `yaml:"clip"`
 }
 
 // LoadConfig reads and parses two YAML files (app config and extraction config)
@@ -56,6 +71,15 @@ func LoadConfig(appYaml, extractionYaml string) (*AppConfig, error) {
 	}
 	if cfg.Extraction.StoragePath == "" {
 		cfg.Extraction.StoragePath = "data/frames"
+	}
+	if cfg.MLService.URL == "" {
+		cfg.MLService.URL = "http://localhost:8001"
+	}
+	if cfg.Storage.DBPath == "" {
+		cfg.Storage.DBPath = "data/intelsk.db"
+	}
+	if cfg.CLIP.BatchSize == 0 {
+		cfg.CLIP.BatchSize = 32
 	}
 
 	return cfg, nil
