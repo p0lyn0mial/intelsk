@@ -10,8 +10,9 @@ instantly. This system combines text-based scene search (CLIP) with person ident
 ## Architecture
 
 Two-process design: a **Go backend** handles HTTP serving, video downloading, frame
-extraction, and vector DB queries. A **Python ML sidecar** handles CLIP and face
-inference (the only parts that need PyTorch and dlib).
+extraction, SQLite storage, and data retention. A **Python ML sidecar** handles CLIP
+and face inference, vector search (brute-force NumPy over SQLite-stored embeddings),
+and face clustering (the only parts that need PyTorch and dlib).
 
 ```
 User selects cameras + date(s) in Web UI
@@ -32,18 +33,21 @@ User selects cameras + date(s) in Web UI
 | (ISAPI)    |        | (ffmpeg subprocess|       |  Sidecar (:8001)  |
 +-----+------+        +---------+--------+        |  - CLIP encode    |
       |                         |                  |  - face detect    |
-      | MP4 clips               | JPEG frames     +--------+----------+
-      v                         v                           |
-+-----+------+        +---------+--------+         embeddings (JSON)
+      | MP4 clips               | JPEG frames     |  - vector search  |
+      v                         v                  |  - face cluster   |
++-----+------+        +---------+--------+        +--------+----------+
 | data/      |        | data/            |                  |
-| videos/    |        | frames/          |                  v
-+------------+        +------------------+        +---------+--------+
-                                                  |    ChromaDB      |
-                                                  | clip_embeddings  |
-                          Processing complete,    | face_embeddings  |
-                          user can now search     +--------+---------+
-                                                           ^
-                                                           |
+| videos/    |        | frames/          |         embeddings (JSON)
++------------+        +------------------+                  |
+                                                            v
+                                                  +---------+--------+
+                                                  |  data/intelsk.db |
+                          Processing complete,    |  (SQLite)        |
+                          user can now search     |  clip_embeddings |
+                                                  |  face_embeddings |
+                          Search: Go → ML sidecar +--------+---------+
+                          ML sidecar reads from            ^
+                          SQLite, brute-force NumPy        |
                                                       query / search
                                                            |
                                                   +--------+---------+
@@ -56,8 +60,9 @@ User selects cameras + date(s) in Web UI
 - HTTP API (Chi router)
 - Hikvision ISAPI client (HTTP digest auth, download clips)
 - Frame extraction (ffmpeg subprocess)
-- Pipeline orchestration (download → extract → call ML sidecar → store in ChromaDB)
-- ChromaDB queries (via HTTP client)
+- Pipeline orchestration (download → extract → call ML sidecar → store in SQLite)
+- SQLite storage (embeddings + metadata)
+- Data retention cleanup (purge frames, videos, and embeddings older than N days)
 - SSE progress streaming
 - Static file serving (frames, videos)
 - Face registry CRUD (JSON file)
@@ -67,7 +72,9 @@ User selects cameras + date(s) in Web UI
 - CLIP image encoding (MobileCLIP2-S0 via open_clip)
 - CLIP text encoding
 - Face detection + encoding (face_recognition / dlib)
-- Stateless — receives file paths or text, returns embeddings
+- Vector search (loads embeddings from SQLite, brute-force NumPy cosine/L2 search)
+- Face clustering (agglomerative clustering on unassigned face embeddings)
+- Receives file paths, text, or DB path — returns embeddings, search results, or clusters
 
 ## User Workflow
 
@@ -77,6 +84,8 @@ User selects cameras + date(s) in Web UI
 4. Once complete, the search bar becomes active for that dataset
 5. Previously processed camera+date combinations are cached — re-selecting them
    skips straight to search
+6. Clicking the play button on a search result opens the source video in an inline
+   player, seeked to the exact moment the frame was captured
 
 ## Component Design Docs
 
@@ -84,10 +93,10 @@ User selects cameras + date(s) in Web UI
 |-----------|----------|-------------|
 | Video Downloader | [hikvision-downloader.md](hikvision-downloader.md) | Hikvision ISAPI integration, camera config, on-demand download |
 | Frame Extractor | [frame-extraction.md](frame-extraction.md) | Time-based and motion-based extraction, de-duplication |
-| Indexing + Search | [indexing-and-search.md](indexing-and-search.md) | Python ML sidecar API, CLIP encoding, face detection, ChromaDB |
+| Indexing + Search | [indexing-and-search.md](indexing-and-search.md) | Python ML sidecar API, CLIP encoding, face detection, SQLite storage, vector search |
 | Backend API | [backend-api.md](backend-api.md) | Go HTTP endpoints, request/response types, SSE progress |
 | Web UI | [web-ui.md](web-ui.md) | React frontend, pages, layout wireframe |
-| Face Enrollment | [face-enrollment.md](face-enrollment.md) | Face registry format, enrollment flow, matching logic |
+| Face Enrollment | [face-enrollment.md](face-enrollment.md) | Face registry format, discovery-based enrollment, matching logic |
 | **Roadmap** | [roadmap.md](roadmap.md) | **Detailed task breakdown per phase with checkboxes** |
 
 ## Directory Structure
@@ -125,7 +134,8 @@ intelsk/
       mlclient.go                # HTTP client for Python ML sidecar
       pipeline.go                # orchestrates download → extract → index
       faceregistry.go            # face enrollment logic (JSON file)
-      vectordb.go                # ChromaDB HTTP client
+      storage.go                 # SQLite client (embeddings + metadata)
+      cleanup.go                 # data retention cleanup
     config/
       config.go                  # YAML config loader
     models/
@@ -152,6 +162,8 @@ intelsk/
         ResultsGrid.tsx
         ResultCard.tsx
         FrameDetail.tsx
+        PlayButtonOverlay.tsx    # play icon overlay on result thumbnails
+        VideoPlayerModal.tsx     # inline video player modal
         CameraGrid.tsx
         FaceRegistry.tsx
       api/
@@ -161,6 +173,7 @@ intelsk/
         useProcess.ts
         useSearch.ts
         useCameras.ts
+        useVideoPlayer.ts        # video player modal state management
   experiments/                   # previous prototypes
     demo_search.py               # CLI CLIP search tool
     DEMO.md
@@ -171,9 +184,8 @@ intelsk/
   data/                          # gitignored, runtime data
     videos/                      # downloaded MP4s
     frames/                      # extracted JPEGs
-    faces/                       # enrolled face photos
-    chromadb/                    # vector DB persistence
-    face_registry.json           # enrolled persons
+    intelsk.db                   # SQLite database (embeddings + metadata)
+    face_registry.json           # enrolled persons (kept indefinitely)
     process_history.json         # tracks which camera+date combos are indexed
 ```
 
@@ -206,10 +218,11 @@ face:
   match_threshold: 0.6           # Euclidean distance threshold
   registry_path: data/face_registry.json
 
-chromadb:
-  url: http://localhost:8002     # ChromaDB server (or embedded path)
-  clip_collection: clip_embeddings
-  face_collection: face_embeddings
+storage:
+  db_path: data/intelsk.db       # SQLite database file
+  retention_days: 30             # purge frames, videos, embeddings older than N days
+                                 # set to 0 to disable automatic cleanup
+                                 # face registry is kept indefinitely
 
 process:
   history_path: data/process_history.json
@@ -227,6 +240,7 @@ go 1.22+
 github.com/go-chi/chi/v5        # HTTP router
 github.com/go-chi/cors           # CORS middleware
 gopkg.in/yaml.v3                 # YAML config parsing
+modernc.org/sqlite               # Pure-Go SQLite driver (no CGO)
 ```
 
 External tools (must be on PATH):
@@ -242,14 +256,7 @@ open-clip-torch
 face-recognition
 numpy
 Pillow
-```
-
-### ChromaDB
-
-Run as a separate process or Docker container:
-```
-chromadb                         # pip install chromadb
-# or: docker run -p 8002:8000 chromadb/chroma
+scikit-learn                     # agglomerative clustering for face discovery
 ```
 
 ### Frontend
@@ -280,14 +287,16 @@ date-fns
 
 ### Phase 3: Python ML Sidecar + Indexing
 - Python FastAPI sidecar with /encode/image, /encode/text, /detect/faces
-- ChromaDB setup with two collections
-- Go client for ML sidecar
-- Go client for ChromaDB HTTP API
+- Search endpoints in ML sidecar: /search/image, /search/face
+- SQLite schema creation (clip_embeddings, face_embeddings tables)
+- Go SQLite client for embedding storage
+- Go client for ML sidecar (encode + search)
 - Batch indexing pipeline in Go
 
 ### Phase 4: Go Backend API + Pipeline Orchestration
 - Go HTTP server with process + search + camera + face endpoints
-- On-demand pipeline: download → extract → call ML sidecar → store in ChromaDB
+- SQLite initialization on startup
+- On-demand pipeline: download → extract → call ML sidecar → store in SQLite
 - SSE progress streaming to frontend
 - Process history tracking (skip already-indexed camera+date combos)
 - Camera snapshot proxy
@@ -304,7 +313,30 @@ date-fns
 - Authentication (API key or basic auth middleware in Go)
 - Error handling and retry logic for camera connections
 - Performance tuning (batch sizes, GPU acceleration)
-- Docker Compose for deployment (Go backend + ML sidecar + ChromaDB + frontend)
+- Automated data retention cleanup (configurable N-day rolling window)
+- Docker Compose for deployment (Go backend + ML sidecar + frontend)
+
+## Data Lifecycle
+
+The system implements a rolling-window data retention policy:
+
+- **Retained data** (N-day window, configurable via `storage.retention_days`):
+  - Extracted frames (`data/frames/`)
+  - Downloaded videos (`data/videos/`)
+  - CLIP embeddings (`clip_embeddings` table in SQLite)
+  - Face embeddings (`face_embeddings` table in SQLite)
+  - Process history entries
+
+- **Kept indefinitely**:
+  - Face registry (`data/face_registry.json`) — named persons and their reference encodings
+  - Configuration files
+
+- **Cleanup mechanism**:
+  - Automatic: runs on backend startup and periodically (e.g., daily)
+  - Manual: `POST /api/cleanup` endpoint or CLI command
+  - Deletes SQLite rows with `timestamp` older than N days
+  - Deletes frame JPEG files and video MP4 files from corresponding date directories
+  - Updates process history to remove purged entries
 
 ## Open Questions
 
@@ -312,6 +344,4 @@ date-fns
   batch sizes and whether face detection can use CNN model.
 - **Camera count**: How many cameras? Affects storage requirements.
 - **Auth**: Should the web UI require login?
-- **Cleanup**: Should there be a way to delete previously processed data from the UI
-  (free disk space), or is that a manual operation?
 - **Notifications**: Should the system alert on specific events (e.g., unknown person detected)?

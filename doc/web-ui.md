@@ -33,6 +33,7 @@ Example translation keys:
 {
   "nav.title": "CCTV Intelligence",
   "nav.cameras": "Cameras",
+  "nav.faces": "Faces",
   "process.title": "Select footage to process",
   "process.cameras": "Cameras",
   "process.date": "Date",
@@ -49,7 +50,28 @@ Example translation keys:
   "results.score": "Score",
   "cameras.title": "Camera Dashboard",
   "cameras.online": "Online",
-  "cameras.offline": "Offline"
+  "cameras.offline": "Offline",
+  "faces.title": "Face Registry",
+  "faces.discover": "Discover Faces",
+  "faces.discovering": "Clustering faces...",
+  "faces.clusters": "Discovered Clusters",
+  "faces.cluster.count": "{{count}} faces",
+  "faces.cluster.assign": "Assign",
+  "faces.cluster.name_placeholder": "Enter name...",
+  "faces.cluster.skip": "Skip",
+  "faces.enrolled": "Enrolled Persons",
+  "faces.enrolled.empty": "No persons enrolled yet",
+  "faces.enrolled.delete": "Delete",
+  "faces.enrolled.faces_count": "{{count}} face samples",
+  "faces.no_clusters": "No unassigned faces found. Process some footage first.",
+  "faces.assigned": "Name assigned successfully",
+  "video.play": "Play video",
+  "video.close": "Close player",
+  "video.loading": "Loading video...",
+  "video.error": "Video unavailable",
+  "video.camera": "Camera",
+  "video.timestamp": "Timestamp",
+  "video.seek_hint": "Seeked to capture moment"
 }
 ```
 
@@ -58,6 +80,7 @@ Example translation keys:
 {
   "nav.title": "Monitoring CCTV",
   "nav.cameras": "Kamery",
+  "nav.faces": "Twarze",
   "process.title": "Wybierz nagrania do przetworzenia",
   "process.cameras": "Kamery",
   "process.date": "Data",
@@ -74,7 +97,28 @@ Example translation keys:
   "results.score": "Wynik",
   "cameras.title": "Podgląd kamer",
   "cameras.online": "Online",
-  "cameras.offline": "Offline"
+  "cameras.offline": "Offline",
+  "faces.title": "Rejestr twarzy",
+  "faces.discover": "Wykryj twarze",
+  "faces.discovering": "Grupowanie twarzy...",
+  "faces.clusters": "Wykryte grupy",
+  "faces.cluster.count": "{{count}} twarzy",
+  "faces.cluster.assign": "Przypisz",
+  "faces.cluster.name_placeholder": "Wpisz imię...",
+  "faces.cluster.skip": "Pomiń",
+  "faces.enrolled": "Zarejestrowane osoby",
+  "faces.enrolled.empty": "Brak zarejestrowanych osób",
+  "faces.enrolled.delete": "Usuń",
+  "faces.enrolled.faces_count": "{{count}} próbek twarzy",
+  "faces.no_clusters": "Brak nieprzypisanych twarzy. Najpierw przetwórz nagrania.",
+  "faces.assigned": "Imię przypisane pomyślnie",
+  "video.play": "Odtwórz wideo",
+  "video.close": "Zamknij odtwarzacz",
+  "video.loading": "Ładowanie wideo...",
+  "video.error": "Wideo niedostępne",
+  "video.camera": "Kamera",
+  "video.timestamp": "Czas",
+  "video.seek_hint": "Przewinięto do momentu ujęcia"
 }
 ```
 
@@ -97,17 +141,36 @@ Two-phase UI on a single page:
   - Text Search: type a natural language query
   - Person Search: select from enrolled persons dropdown
 - Results grid: thumbnails with timestamp, camera name, similarity score
-- Click a result: opens detail view with larger image, link to play source video
+- Play button overlay on each thumbnail (visible on hover) — opens video player modal
+- Click a result: opens detail view with larger image, metadata
 
 ### Camera Dashboard
 - Grid of live snapshots (refreshed every 10s)
 - Camera status indicators (online/offline)
 - Quick link to main page with that camera pre-selected
 
-### Face Registry
-- List of enrolled persons with thumbnail
-- Upload new face photo to enroll
-- Delete enrolled person
+### Face Registry (Discovery-Based)
+
+**Discover Faces:**
+- "Discover Faces" button triggers clustering of all unassigned faces across the
+  entire database (all cameras, all dates)
+- Loading state while clustering runs (can take time for large datasets)
+
+**Cluster Review:**
+- Grid of discovered face clusters
+- Each cluster shows up to 5 representative face thumbnails and total count
+- Name input field per cluster
+- "Assign" button to save name → creates a face registry entry
+- Option to skip/dismiss clusters (faces remain unassigned for future discovery)
+
+**Enrolled Persons:**
+- List of already-named persons with their face samples
+- Face count per person
+- Delete button to remove an enrolled person
+- Option to merge: drag a cluster onto an existing person to add faces
+
+**No manual upload** — enrollment is discovery-only. Faces are found in
+processed frames and presented for naming.
 
 ## Layout
 
@@ -144,4 +207,105 @@ Two-phase UI on a single page:
 |  score: 0.82   score: 0.79   score: 0.76   score: 0.71          |
 |                                                                   |
 +------------------------------------------------------------------+
+```
+
+## Video Playback
+
+### PlayButtonOverlay (`PlayButtonOverlay.tsx`)
+
+A semi-transparent play icon centered on each `ResultCard` thumbnail. The icon
+fades in on hover, providing a clear affordance that clicking will play the source
+video.
+
+```
++----------+       +----------+
+|          |       |    ▶     |   ← hover reveals play icon
+|  thumb   |  →    |  thumb   |     (semi-transparent white circle + triangle)
+|          |       |          |
++----------+       +----------+
+```
+
+Props: `onClick: () => void`
+
+### VideoPlayerModal (`VideoPlayerModal.tsx`)
+
+An inline modal with an HTML5 `<video>` element that plays the source video
+segment, seeked to the exact frame capture time.
+
+```
++------------------------------------------------------------------+
+|                                                                    |
+|  +--------------------------------------------------------------+ |
+|  |  Front Door — 2026-02-18 14:23:05                        [X] | |
+|  +--------------------------------------------------------------+ |
+|  |                                                              | |
+|  |                                                              | |
+|  |                      <video>                                 | |
+|  |                    (HTML5 player)                             | |
+|  |                                                              | |
+|  |                                                              | |
+|  +--------------------------------------------------------------+ |
+|  |  Seeked to capture moment (23:05)                            | |
+|  +--------------------------------------------------------------+ |
+|                                                                    |
++------------------------------------------------------------------+
+  ^^^^ dark semi-transparent backdrop, click to close
+```
+
+**Behavior:**
+- On open: loads video from `source_video_url`
+- On `loadedmetadata` event: sets `video.currentTime = seekOffsetSec`
+- Autoplays muted (browser autoplay policy requires muted), user can unmute
+- Close on Escape key or clicking the backdrop
+- Shows camera name and formatted timestamp above the player
+- Shows seek hint below the player (e.g., "Seeked to capture moment")
+- On 404 (video purged by retention cleanup): shows "Video unavailable" message
+
+**Props:**
+```typescript
+interface VideoPlayerModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  sourceVideoUrl: string;
+  seekOffsetSec: number;
+  cameraName: string;
+  timestamp: string;
+}
+```
+
+### useVideoPlayer Hook (`useVideoPlayer.ts`)
+
+Manages the video player modal state: which video is open, seek offset, and
+open/close actions.
+
+```typescript
+interface VideoPlayerState {
+  isOpen: boolean;
+  sourceVideoUrl: string;
+  seekOffsetSec: number;
+  cameraName: string;
+  timestamp: string;
+}
+
+function useVideoPlayer() {
+  // Returns:
+  //   state: VideoPlayerState
+  //   openVideo(result: SearchResult): void
+  //   closeVideo(): void
+}
+```
+
+Called from `MainPage.tsx`. `openVideo` is passed down to each `ResultCard`, which
+renders `PlayButtonOverlay` wired to it. `VideoPlayerModal` is rendered once at
+the page level, controlled by the hook's state.
+
+### Updated TypeScript Types
+
+```typescript
+// api/types.ts — additions
+interface SearchResult {
+  // ... existing fields ...
+  source_video_url?: string;
+  seek_offset_sec: number;
+}
 ```

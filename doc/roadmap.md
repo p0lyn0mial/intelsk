@@ -62,30 +62,33 @@ runnable from the command line.
 
 ## Phase 3: Python ML Sidecar + CLIP Indexing
 
-Goal: Python sidecar for CLIP inference, Go client to call it, ChromaDB integration.
+Goal: Python sidecar for CLIP inference and search, Go client to call it, SQLite storage.
 
 ### 3.1 Python ML Sidecar (`mlservice/`)
 - [ ] FastAPI app with `/encode/image`, `/encode/text`, `/health`
 - [ ] `CLIPEncoder` class — load MobileCLIP2-S0, batch image encoding, text encoding
-- [ ] `requirements.txt` (fastapi, uvicorn, torch, open-clip-torch, numpy, Pillow)
+- [ ] `Searcher` class — load embeddings from SQLite, brute-force NumPy search
+- [ ] `POST /search/image` endpoint — text-to-image search (CLIP cosine similarity)
+- [ ] `requirements.txt` (fastapi, uvicorn, torch, open-clip-torch, numpy, Pillow, scikit-learn)
 - [ ] `run.sh` startup script
 
 ### 3.2 Go ML Client (`backend/services/mlclient.go`)
 - [ ] HTTP client struct with base URL config
 - [ ] `EncodeImages(paths) → [][]float64`
 - [ ] `EncodeText(text) → []float64`
+- [ ] `SearchByText(dbPath, text, filters, limit) → []SearchResult`
 - [ ] Timeout and retry handling
 - [ ] Health check on startup (wait for sidecar ready)
 
-### 3.3 ChromaDB Setup
-- [ ] Run ChromaDB as a separate process (or Docker container)
-- [ ] Go HTTP client for ChromaDB API (`backend/services/vectordb.go`)
-- [ ] Create/get `clip_embeddings` collection (cosine space, 512-dim)
+### 3.3 SQLite Storage (`backend/services/storage.go`)
+- [ ] SQLite schema creation (`clip_embeddings`, `face_embeddings` tables)
+- [ ] `NewStorage(dbPath)` — open DB, run migrations
 - [ ] `AddClipEmbedding(id, embedding, metadata)`
-- [ ] `QueryClip(embedding, nResults, filters)`
+- [ ] `Cleanup(olderThan)` — delete rows older than N days
+- [ ] Embeddings stored as raw byte blobs (float32 arrays)
 
 ### 3.4 Indexing Pipeline (`backend/services/pipeline.go`)
-- [ ] Orchestrate: iterate frames → call ML sidecar (batch) → store in ChromaDB
+- [ ] Orchestrate: iterate frames → call ML sidecar (batch) → store in SQLite
 - [ ] Progress callback (channel) for reporting to caller
 - [ ] JSON sidecar to track which frames have been indexed (resume support)
 
@@ -107,8 +110,8 @@ Goal: Go HTTP server exposing the full pipeline and text search.
 ### 4.1 HTTP Server (`backend/cmd/server/server.go`)
 - [ ] Chi router setup with CORS
 - [ ] Config loading on startup
+- [ ] SQLite initialization on startup
 - [ ] ML sidecar health check on startup
-- [ ] ChromaDB connection check on startup
 
 ### 4.2 Process Endpoint (`backend/api/process.go`)
 - [ ] `POST /api/process` — accept camera_ids + date range, start pipeline
@@ -118,7 +121,7 @@ Goal: Go HTTP server exposing the full pipeline and text search.
 - [ ] Process history tracking (`data/process_history.json`): skip re-processing
 
 ### 4.3 Search Endpoint (`backend/api/search.go`)
-- [ ] `POST /api/search/text` — call ML sidecar for text embedding, query ChromaDB
+- [ ] `POST /api/search/text` — call ML sidecar `/search/image` with DB path + filters
 
 ### 4.4 Camera Endpoints (`backend/api/cameras.go`)
 - [ ] `GET /api/cameras` — list configured cameras (id, name, status)
@@ -156,20 +159,38 @@ Goal: React frontend for the process + text search workflow.
 
 ### 5.3 Results Grid
 - [ ] Thumbnail grid with camera name, timestamp, score
-- [ ] Click to expand: larger image, metadata, link to source video
+- [ ] Play button overlay on thumbnails (`PlayButtonOverlay.tsx`)
+- [ ] Click to expand: larger image, metadata
 - [ ] Lazy loading / pagination for large result sets
 
-### 5.4 Camera Dashboard (`CamerasPage.tsx`)
+### 5.4 Video Playback
+- [ ] Backend: `GET /api/videos/{video_id}/play` handler using `http.ServeFile` (supports Range requests)
+- [ ] Backend: path validation against directory traversal on video ID
+- [ ] Backend: compute `seek_offset_sec` in search result mapping (frame timestamp minus segment start hour)
+- [ ] Backend: construct `source_video_url` from ML sidecar `source_video` field (encode as video ID)
+- [ ] Backend: face search join — retrieve `source_video` from `clip_embeddings` by `frame_path`
+- [ ] Frontend: `PlayButtonOverlay.tsx` — semi-transparent play icon on `ResultCard`, hover reveal
+- [ ] Frontend: `VideoPlayerModal.tsx` — HTML5 `<video>` in modal, dark backdrop, close on Escape/backdrop
+- [ ] Frontend: on `loadedmetadata`, set `video.currentTime = seekOffsetSec`; autoplay muted
+- [ ] Frontend: `useVideoPlayer.ts` hook — manages modal open/close state + video props
+- [ ] Frontend: update `ResultCard.tsx` to render `PlayButtonOverlay`
+- [ ] Frontend: add i18n keys (`video.play`, `video.close`, `video.loading`, `video.error`, `video.camera`, `video.timestamp`, `video.seek_hint`) in EN + PL
+- [ ] Frontend: add `seek_offset_sec` and `source_video_url` to TypeScript `SearchResult` type
+- [ ] Verification: end-to-end test — search → click play → video opens seeked to correct time
+- [ ] Verification: Range request seeking works (seek forward/backward in player)
+- [ ] Verification: 404 handled gracefully when video purged by retention cleanup
+
+### 5.5 Camera Dashboard (`CamerasPage.tsx`)
 - [ ] Grid of snapshot thumbnails, auto-refresh every 10s
 - [ ] Online/offline indicator per camera
 - [ ] Click camera → navigate to main page with that camera pre-selected
 
-### 5.5 Navigation
+### 5.6 Navigation
 - [ ] Top nav bar: CCTV Intelligence | Cameras | [EN|PL]
 - [ ] React Router for page navigation
 - [ ] All UI strings via `useTranslation()` hook (no hardcoded text)
 
-### 5.6 Verification
+### 5.7 Verification
 - [ ] Full end-to-end: select camera + date → process → search → view results
 - [ ] Camera dashboard shows live snapshots
 
@@ -198,12 +219,17 @@ Goal: production readiness.
 - [ ] `Dockerfile` for Go backend (multi-stage: build + runtime with ffmpeg)
 - [ ] `Dockerfile` for ML sidecar (Python + torch)
 - [ ] `Dockerfile` for frontend (Node build + nginx)
-- [ ] `docker-compose.yaml` (Go backend + ML sidecar + ChromaDB + frontend)
+- [ ] `docker-compose.yaml` (Go backend + ML sidecar + frontend)
 - [ ] Volume mounts for `data/` and `config/`
 - [ ] Environment variable documentation
 
-### 6.5 Cleanup
-- [ ] UI button or CLI command to delete processed data for a camera+date
+### 6.5 Data Retention + Cleanup
+- [ ] `backend/services/cleanup.go` — delete old embeddings, frames, videos
+- [ ] Automatic cleanup on backend startup (based on `storage.retention_days`)
+- [ ] Periodic cleanup (configurable interval, e.g., daily)
+- [ ] `POST /api/cleanup` endpoint for manual trigger
+- [ ] CLI command: `go run ./backend cleanup --older-than 30d`
+- [ ] Cleanup skips face registry and assigned face embeddings
 - [ ] Disk usage display in UI
 
 ---
@@ -254,37 +280,50 @@ required for accurate results.
 
 ## Phase 8: Face Recognition (Future)
 
-Goal: add person identification alongside text search.
+Goal: add person identification alongside text search, using discovery-based enrollment.
 
 ### 8.1 ML Sidecar Extension
 - [ ] Add `/detect/faces` endpoint to ML sidecar
 - [ ] `FaceEncoder` class — face_recognition HOG detection + 128-dim encoding
 - [ ] Add `face-recognition` to `requirements.txt`
+- [ ] Add `/search/face` endpoint — L2 distance search over SQLite face embeddings
+- [ ] Add `/cluster/faces` endpoint — agglomerative clustering on unassigned faces
+- [ ] Add `scikit-learn` to `requirements.txt`
 
-### 8.2 ChromaDB Face Collection
-- [ ] Create `face_embeddings` collection (L2 space, 128-dim)
-- [ ] `AddFaceEmbedding(id, embedding, metadata)` in Go ChromaDB client
-- [ ] `QueryFace(embedding, nResults, filters)` in Go ChromaDB client
+### 8.2 SQLite Face Storage
+- [ ] `AddFaceEmbedding(id, embedding, metadata)` in Go SQLite client
+- [ ] `face_embeddings` table with `person_name` column (NULL = unassigned)
+- [ ] Index on `person_name` for filtering unassigned faces
 
 ### 8.3 Go ML Client Extension
 - [ ] `DetectFaces(path) → []Face`
+- [ ] `SearchByFace(dbPath, encoding, filters, threshold, limit) → []SearchResult`
+- [ ] `ClusterFaces(dbPath, distanceThreshold) → []FaceCluster`
 
 ### 8.4 Indexing Pipeline Update
 - [ ] Run face detection alongside CLIP encoding during indexing
-- [ ] Store face embeddings in `face_embeddings` collection
+- [ ] Store face embeddings in SQLite `face_embeddings` table (person_name = NULL)
 
-### 8.5 Face Registry + Search
-- [ ] Face registry CRUD endpoints (`backend/api/faces.go`)
-- [ ] `POST /api/search/person/{name}` — average encodings, query ChromaDB
+### 8.5 Face Discovery + Registry
+- [ ] `POST /api/faces/discover` — trigger face clustering via ML sidecar
+- [ ] `GET /api/faces/clusters` — return discovered clusters to UI
+- [ ] `POST /api/faces/clusters/{id}/assign` — assign name, update registry + SQLite
 - [ ] Face registry management in Go (`backend/services/faceregistry.go`)
+- [ ] `POST /api/search/person/{name}` — average encodings, search via ML sidecar
+- [ ] `DELETE /api/faces/registry/{name}` — remove person from registry
 
 ### 8.6 Web UI — Face Features
-- [ ] Face Registry page (enroll, list, delete persons)
+- [ ] Face Registry page with "Discover Faces" button
+- [ ] Cluster review grid: representative thumbnails, name input, assign button
+- [ ] Enrolled persons list with face count and delete option
 - [ ] Person search toggle on main page
 - [ ] Person dropdown from `/api/faces/registry`
 - [ ] Add "Faces" to navigation bar
+- [ ] i18n keys for face discovery (EN + PL)
 
 ### 8.7 Verification
-- [ ] Enroll a face via API and UI
-- [ ] Index test faces from `experiments/test_faces/`
+- [ ] Process footage with faces, verify face embeddings stored in SQLite
+- [ ] Trigger face discovery, verify clusters make sense
+- [ ] Assign a name to a cluster, verify registry updated
 - [ ] Search for an enrolled person, verify results
+- [ ] Index test faces from `experiments/test_faces/`
