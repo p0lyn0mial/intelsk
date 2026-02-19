@@ -9,51 +9,46 @@ See [doc/DESIGN.md](doc/DESIGN.md) for the full architecture.
 ## Prerequisites
 
 - **Go 1.22+**
-- **ffmpeg** — used for video frame extraction
+- **Python 3.10+** — for the ML sidecar
+- **Node.js 18+** — for the frontend
+- **ffmpeg** — for video frame extraction
 
-### Install ffmpeg
+### Install dependencies
 
 ```bash
 # macOS
-brew install ffmpeg
+brew install ffmpeg go node python
 
 # Ubuntu/Debian
-sudo apt install ffmpeg
-
-# Verify
-ffmpeg -version
+sudo apt install ffmpeg golang nodejs python3 python3-venv
 ```
 
-## Project Structure
+## Quick Start
 
-```
-intelsk/
-  config/              # YAML configuration files
-    app.yaml           # app settings (data_dir, log_level)
-    extraction.yaml    # frame extraction settings
-  backend/             # Go backend
-    go.mod
-    main.go            # CLI entry point
-    config/config.go   # YAML config loader
-    models/types.go    # shared types (FrameMetadata)
-    services/
-      extractor.go     # frame extraction + dedup
-  doc/                 # design documents
-  data/                # runtime data (gitignored)
-    videos/            # source MP4 files
-    frames/            # extracted JPEGs + manifests
+### 1. Set up Python ML sidecar
+
+```bash
+cd mlservice
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-## Getting Started
+### 2. Install frontend dependencies
 
-### 1. Build
+```bash
+cd frontend
+npm install
+```
+
+### 3. Build Go backend
 
 ```bash
 cd backend
 go build ./...
 ```
 
-### 2. Place video files
+### 4. Place video files
 
 Videos go in `data/videos/{camera_id}/{date}/{HH}00.mp4`:
 
@@ -64,50 +59,55 @@ cp your-video.mp4 data/videos/front_door/2026-02-18/0800.mp4
 
 The filename encodes the segment hour (e.g. `0800.mp4` = 08:00, `1400.mp4` = 14:00).
 
-### 3. Extract frames from a single video
+### 5. Run everything
 
 ```bash
-cd backend
-go run . extract -root .. -video ../data/videos/front_door/2026-02-18/0800.mp4
+make run
 ```
 
-### 4. Process all videos for a camera + date
+This starts three processes:
+- **ML sidecar** on `:8001` (CLIP model loading takes a moment on first start)
+- **Go backend** on `:8000` (API server)
+- **Frontend dev server** on `:5173` (proxies `/api` to the backend)
 
-```bash
-cd backend
-go run . process -root .. -camera front_door -date 2026-02-18
+Open http://localhost:5173 to use the web UI.
+
+## Project Structure
+
 ```
-
-Both commands will:
-1. Extract JPEG frames at the configured interval (default: every 5 seconds)
-2. Run pHash de-duplication to remove near-identical frames (if enabled)
-3. Write a `manifest.json` with metadata for each retained frame
-
-Output goes to `data/frames/{camera_id}/{date}/`.
-
-## Configuration
-
-### config/app.yaml
-
-```yaml
-app:
-  data_dir: data       # root directory for videos/frames
-  log_level: info
-```
-
-### config/extraction.yaml
-
-```yaml
-extraction:
-  method: time                # time-based extraction (motion deferred to Phase 3)
-  time_interval_sec: 5        # extract 1 frame every N seconds
-  motion_threshold: 0.01      # reserved for motion-based extraction
-  min_gap_sec: 2.0            # reserved for motion-based extraction
-  output_format: jpg
-  output_quality: 85          # JPEG quality (2 = best in ffmpeg scale)
-  dedup_enabled: true         # enable pHash de-duplication
-  dedup_phash_threshold: 8    # hamming distance threshold (lower = stricter)
-  storage_path: data/frames   # output directory for extracted frames
+intelsk/
+  config/                # YAML configuration files
+    app.yaml             # app + server + ML + storage settings
+    extraction.yaml      # frame extraction settings
+  backend/               # Go backend
+    main.go              # CLI entry point (extract, process, index, search, serve)
+    cmd/server/          # HTTP server setup (Chi router)
+    api/                 # HTTP handlers (process, search, cameras, videos)
+    config/config.go     # YAML config loader
+    models/types.go      # shared types
+    services/
+      extractor.go       # frame extraction + dedup
+      mlclient.go        # HTTP client for ML sidecar
+      storage.go         # SQLite storage (embeddings)
+      pipeline.go        # indexing pipeline with resume support
+  mlservice/             # Python ML sidecar
+    main.py              # FastAPI app
+    clip_encoder.py      # MobileCLIP2 image/text encoding
+    searcher.py          # CLIP cosine similarity search
+    requirements.txt
+    run.sh
+  frontend/              # React web UI
+    src/
+      pages/             # MainPage (process + search), CamerasPage
+      components/        # NavBar, ResultCard, VideoPlayerModal, PlayButtonOverlay
+      api/               # API client + TypeScript types
+      i18n/              # EN/PL translations
+      hooks/             # useVideoPlayer
+  doc/                   # design documents
+  data/                  # runtime data (gitignored)
+    videos/              # source MP4 files
+    frames/              # extracted JPEGs + manifests
+    intelsk.db           # SQLite database (embeddings)
 ```
 
 ## CLI Reference
@@ -129,6 +129,86 @@ Usage: backend process [flags]
   -root string     Project root directory (default: auto-detected)
 ```
 
+### `index` — Index extracted frames via CLIP embeddings
+
+```
+Usage: backend index [flags]
+  -camera string   Camera ID (required)
+  -date string     Date in YYYY-MM-DD format (required)
+  -root string     Project root directory (default: auto-detected)
+```
+
+Requires the ML sidecar to be running.
+
+### `search` — Search indexed frames by text query
+
+```
+Usage: backend search [flags]
+  -text string     Text query (required)
+  -camera string   Camera ID filter (optional)
+  -limit int       Max results (default: 20)
+  -root string     Project root directory (default: auto-detected)
+```
+
+Requires the ML sidecar to be running.
+
+### `serve` — Start the HTTP API server
+
+```
+Usage: backend serve [flags]
+  -root string   Project root directory (default: auto-detected)
+```
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check (includes ML sidecar status) |
+| POST | `/api/process` | Start extract + index pipeline |
+| GET | `/api/process/status?job_id=` | SSE progress stream |
+| GET | `/api/process/history` | List processed camera+date combos |
+| POST | `/api/search/text` | CLIP text search |
+| GET | `/api/cameras` | List discovered cameras |
+| GET | `/api/videos/{video_id}/play` | Stream video with seeking |
+| GET | `/api/frames/*` | Serve frame images |
+
+## Configuration
+
+### config/app.yaml
+
+```yaml
+app:
+  host: 0.0.0.0
+  port: 8000
+  data_dir: data
+  log_level: info
+
+mlservice:
+  url: http://localhost:8001
+
+storage:
+  db_path: data/intelsk.db
+
+clip:
+  batch_size: 32
+
+process:
+  history_path: data/process_history.json
+```
+
+### config/extraction.yaml
+
+```yaml
+extraction:
+  method: time
+  time_interval_sec: 5
+  output_format: jpg
+  output_quality: 85
+  dedup_enabled: true
+  dedup_phash_threshold: 8
+  storage_path: data/frames
+```
+
 ## Development Roadmap
 
 See [doc/roadmap.md](doc/roadmap.md) for the full phase breakdown.
@@ -137,9 +217,9 @@ See [doc/roadmap.md](doc/roadmap.md) for the full phase breakdown.
 |-------|--------|-------------|
 | 1 | Done | Design documents |
 | 2 | Done | Frame extractor (Go CLI) |
-| 3 | Planned | Python ML sidecar + CLIP indexing |
-| 4 | Planned | Go backend API + pipeline |
-| 5 | Planned | Web UI (React) |
+| 3 | Done | Python ML sidecar + CLIP indexing |
+| 4 | Done | Go backend API + pipeline |
+| 5 | Done | Web UI (React) |
 | 6 | Planned | Polish + hardening + Docker |
 | 7 | Planned | Polish language query translation |
 | 8 | Planned | Face recognition |
