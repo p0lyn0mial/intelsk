@@ -102,6 +102,24 @@ func (h *ProcessHandler) Start(w http.ResponseWriter, r *http.Request) {
 func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 	defer close(job.doneCh)
 
+	// Wait for ML sidecar to be ready before starting
+	job.eventCh <- services.ProgressEvent{
+		Stage:   "waiting",
+		Message: "waiting for ML sidecar...",
+	}
+	if err := h.mlClient.WaitForReady(120 * time.Second); err != nil {
+		job.eventCh <- services.ProgressEvent{
+			Stage:   "error",
+			Message: fmt.Sprintf("ML sidecar not ready: %v", err),
+		}
+		close(job.eventCh)
+		h.mu.Lock()
+		job.Status = "failed"
+		job.Error = err.Error()
+		h.mu.Unlock()
+		return
+	}
+
 	pipeline := services.NewPipeline(h.mlClient, h.storage, h.cfg.CLIP.BatchSize)
 
 	// Collect events from pipeline into job state
