@@ -69,6 +69,8 @@
   "video.error": "Wideo niedostępne",
   "video.camera": "Kamera",
   "video.timestamp": "Czas",
+  "video.skip_back": "Cofnij 10s",
+  "video.skip_forward": "Przewiń 10s",
   "video.seek_hint": "Przewinięto do momentu ujęcia",
   "settings.title": "Ustawienia",
   "settings.loading": "Wczytywanie ustawień...",

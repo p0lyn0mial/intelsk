@@ -69,6 +69,8 @@
   "video.error": "Video unavailable",
   "video.camera": "Camera",
   "video.timestamp": "Timestamp",
+  "video.skip_back": "Skip back 10s",
+  "video.skip_forward": "Skip forward 10s",
   "video.seek_hint": "Seeked to capture moment",
   "settings.title": "Settings",
   "settings.loading": "Loading settings...",

@@ -22,14 +22,22 @@ export default function VideoPlayerModal({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState(false);
 
+  const skip = (seconds: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime + seconds);
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleEscape = (e: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
+      if (e.key === 'ArrowLeft') { e.preventDefault(); skip(-10); }
+      if (e.key === 'ArrowRight') { e.preventDefault(); skip(10); }
     };
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
   useEffect(() => {
@@ -93,9 +101,25 @@ export default function VideoPlayerModal({
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-4 py-2 border-t border-gray-700 text-xs text-gray-400">
-          {t('video.seek_hint')}
+        {/* Skip controls + footer */}
+        <div className="px-4 py-2 border-t border-gray-700 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => skip(-10)}
+              className="px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded min-h-[36px]"
+              title={t('video.skip_back')}
+            >
+              -10s
+            </button>
+            <button
+              onClick={() => skip(10)}
+              className="px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 rounded min-h-[36px]"
+              title={t('video.skip_forward')}
+            >
+              +10s
+            </button>
+          </div>
+          <span className="text-xs text-gray-400">{t('video.seek_hint')}</span>
         </div>
       </div>
     </div>
