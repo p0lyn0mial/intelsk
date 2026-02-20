@@ -88,6 +88,10 @@ class Searcher:
             conditions.append("timestamp >= ?")
             params.append(start_time)
         if end_time:
+            # If end_time is a date-only string (no "T"), append end-of-day
+            # so that timestamps like "2026-02-20T14:00:00" are included.
+            if "T" not in end_time:
+                end_time = end_time + "T23:59:59"
             conditions.append("timestamp <= ?")
             params.append(end_time)
 
