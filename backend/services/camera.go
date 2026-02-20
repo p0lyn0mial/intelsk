@@ -378,7 +378,7 @@ func (s *CameraService) ListVideos(id string) ([]models.VideoFile, error) {
 		return nil, err
 	}
 
-	var files []models.VideoFile
+	files := make([]models.VideoFile, 0)
 	videosDir := filepath.Join(s.cfg.App.DataDir, "videos", id)
 	dateEntries, err := os.ReadDir(videosDir)
 	if err != nil {
