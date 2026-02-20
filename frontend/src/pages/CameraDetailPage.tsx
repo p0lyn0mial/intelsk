@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCamera, getCameraStats, getCameraVideos, cleanCameraData, deleteVideo } from '../api/client';
@@ -19,6 +19,7 @@ type ConfirmModal =
 export default function CameraDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const { data: camera } = useQuery({
@@ -44,6 +45,21 @@ export default function CameraDetailPage() {
   const [confirmModal, setConfirmModal] = useState<ConfirmModal>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (confirmModal) {
+          setConfirmModal(null);
+          setError('');
+        } else {
+          navigate('/cameras');
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [confirmModal, navigate]);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['camera', id] });
