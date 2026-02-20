@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSettings, updateSettings } from '../api/client';
@@ -40,6 +40,7 @@ export default function SettingsPage() {
   const [form, setForm] = useState<SettingsMap>({});
   const [defaults, setDefaults] = useState<SettingsMap>({});
   const [flash, setFlash] = useState<string | null>(null);
+  const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['settings'],
@@ -64,6 +65,20 @@ export default function SettingsPage() {
     },
   });
 
+  const dirty = data && JSON.stringify(form) !== JSON.stringify(data.settings);
+
+  // Auto-save: debounce 1.5s after last change
+  useEffect(() => {
+    if (!dirty) return;
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    autoSaveTimer.current = setTimeout(() => {
+      mutation.mutate(form);
+    }, 1500);
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
+  }, [form, dirty]);
+
   const handleChange = (key: string, value: number | boolean | string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -75,10 +90,9 @@ export default function SettingsPage() {
   };
 
   const handleSave = () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     mutation.mutate(form);
   };
-
-  const dirty = data && JSON.stringify(form) !== JSON.stringify(data.settings);
 
   if (isLoading) {
     return (
@@ -203,21 +217,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl font-semibold text-gray-900">{t('settings.title')}</h1>
-        <div className="flex items-center gap-3">
-          {flash && (
-            <span className="text-sm text-green-600">{flash}</span>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={!dirty || mutation.isPending}
-            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {mutation.isPending ? t('settings.saving') : t('settings.save')}
-          </button>
-        </div>
-      </div>
+      <h1 className="text-xl font-semibold text-gray-900 mb-6">{t('settings.title')}</h1>
 
       {mutation.isError && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
@@ -230,6 +230,19 @@ export default function SettingsPage() {
         {renderCard(t('settings.search_title'), searchFields)}
         {renderCard(t('settings.extraction_title'), extractionFields)}
         {renderCard(t('settings.clip_title'), clipFields)}
+      </div>
+
+      <div className="flex items-center justify-end gap-3 mt-6">
+        {flash && (
+          <span className="text-sm text-green-600">{flash}</span>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={!dirty || mutation.isPending}
+          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+        >
+          {mutation.isPending ? t('settings.saving') : t('settings.save')}
+        </button>
       </div>
     </div>
   );
