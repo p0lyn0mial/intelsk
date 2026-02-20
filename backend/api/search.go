@@ -130,7 +130,9 @@ func buildVideoURL(sourceVideo string) string {
 
 // computeSeekOffset calculates seconds into the video segment.
 // Frame timestamp like "2026-02-18T14:23:05" from video "1400.mp4" (starts at 14:00)
-// → 23*60 + 5 = 1385 seconds
+// → 23*60 + 5 = 1385 seconds.
+// For non-hour-based filenames, assumes the video starts at midnight and
+// computes offset from there.
 func computeSeekOffset(timestamp, sourceVideo string) int {
 	// Parse frame timestamp
 	var frameTime time.Time
@@ -145,18 +147,17 @@ func computeSeekOffset(timestamp, sourceVideo string) int {
 		return 0
 	}
 
-	// Extract hour from video filename (e.g., "1400.mp4" → hour 14)
+	// Try to extract hour from video filename (e.g., "1400.mp4" → hour 14).
+	// Default to 0 (midnight) for non-hour filenames.
+	hour := 0
 	sv := filepath.ToSlash(sourceVideo)
 	base := filepath.Base(sv)
-	base = strings.TrimSuffix(base, ".mp4")
+	stem := strings.TrimSuffix(base, filepath.Ext(base))
 
-	if len(base) < 2 {
-		return 0
-	}
-
-	hour, err := strconv.Atoi(base[:2])
-	if err != nil {
-		return 0
+	if len(stem) >= 2 {
+		if h, err := strconv.Atoi(stem[:2]); err == nil && h >= 0 && h <= 23 {
+			hour = h
+		}
 	}
 
 	// Compute offset: frame time - segment start hour

@@ -173,7 +173,9 @@ func LoadManifest(dir string) ([]models.FrameMetadata, error) {
 }
 
 // parseVideoPath extracts camera_id and segment start time from a video path.
-// Expected path structure: .../data/videos/{camera_id}/{date}/{HH}00.mp4
+// Path structure: .../data/videos/{camera_id}/{date}/{filename}.mp4
+// If the filename starts with a 2-digit hour (e.g. "0800.mp4"), the segment
+// start time includes that hour. Otherwise, it defaults to midnight.
 func parseVideoPath(videoPath string) (cameraID string, segmentStart time.Time, err error) {
 	abs, err := filepath.Abs(videoPath)
 	if err != nil {
@@ -182,25 +184,26 @@ func parseVideoPath(videoPath string) (cameraID string, segmentStart time.Time, 
 
 	parts := strings.Split(filepath.ToSlash(abs), "/")
 	if len(parts) < 3 {
-		return "", time.Time{}, fmt.Errorf("video path too short to parse camera/date/hour: %s", videoPath)
+		return "", time.Time{}, fmt.Errorf("video path too short to parse camera/date: %s", videoPath)
 	}
 
-	filename := parts[len(parts)-1]   // e.g. "0800.mp4"
+	filename := parts[len(parts)-1]   // e.g. "0800.mp4" or "my_video.mp4"
 	dateStr := parts[len(parts)-2]    // e.g. "2026-02-18"
 	cameraID = parts[len(parts)-3]    // e.g. "front_door"
-
-	hourStr := strings.TrimSuffix(filename, filepath.Ext(filename)) // "0800"
-	if len(hourStr) < 2 {
-		return "", time.Time{}, fmt.Errorf("cannot parse hour from filename: %s", filename)
-	}
-	hour, err := strconv.Atoi(hourStr[:2])
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("parsing hour from %s: %w", filename, err)
-	}
 
 	date, err := time.Parse("2006-01-02", dateStr)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("parsing date %s: %w", dateStr, err)
+	}
+
+	// Try to parse hour from filename (e.g. "0800.mp4" → hour 8).
+	// If the filename doesn't start with a valid hour, default to midnight.
+	hour := 0
+	stem := strings.TrimSuffix(filename, filepath.Ext(filename))
+	if len(stem) >= 2 {
+		if h, err := strconv.Atoi(stem[:2]); err == nil && h >= 0 && h <= 23 {
+			hour = h
+		}
 	}
 
 	segmentStart = date.Add(time.Duration(hour) * time.Hour)
