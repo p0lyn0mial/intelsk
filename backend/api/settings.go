@@ -131,14 +131,10 @@ func (h *SettingsHandler) NVRStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	port := h.settings.GetInt("nvr.port")
-	if port == 0 {
-		port = 80
-	}
 	username := h.settings.Get("nvr.username")
 	password := h.settings.Get("nvr.password")
 
-	client := services.NewHikvisionClient(ip, port, username, password)
+	client := services.NewHikvisionClient(ip, username, password)
 	if err := client.Ping(); err != nil {
 		writeJSON(w, http.StatusOK, map[string]string{
 			"status": "error",

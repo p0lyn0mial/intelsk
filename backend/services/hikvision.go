@@ -17,19 +17,17 @@ import (
 	"github.com/intelsk/backend/models"
 )
 
-// HikvisionClient communicates with a Hikvision device (camera or NVR) via ISAPI.
+// HikvisionClient communicates with a Hikvision device (camera or NVR) via ISAPI over HTTPS.
 type HikvisionClient struct {
 	ip       string
-	port     int
 	username string
 	password string
 	client   *http.Client
 }
 
-func NewHikvisionClient(ip string, port int, username, password string) *HikvisionClient {
+func NewHikvisionClient(ip, username, password string) *HikvisionClient {
 	return &HikvisionClient{
 		ip:       ip,
-		port:     port,
 		username: username,
 		password: password,
 		client: &http.Client{
@@ -52,7 +50,7 @@ type Recording struct {
 
 // Snapshot fetches a JPEG snapshot from the given channel.
 func (c *HikvisionClient) Snapshot(channel int) ([]byte, error) {
-	url := fmt.Sprintf("https://%s:%d/ISAPI/Streaming/channels/%d01/picture", c.ip, c.port, channel)
+	url := fmt.Sprintf("https://%s/ISAPI/Streaming/channels/%d01/picture", c.ip, channel)
 	resp, err := c.doDigest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot request: %w", err)
@@ -66,7 +64,7 @@ func (c *HikvisionClient) Snapshot(channel int) ([]byte, error) {
 
 // Ping checks if the device is reachable.
 func (c *HikvisionClient) Ping() error {
-	url := fmt.Sprintf("https://%s:%d/ISAPI/System/status", c.ip, c.port)
+	url := fmt.Sprintf("https://%s/ISAPI/System/status", c.ip)
 	resp, err := c.doDigest("GET", url, nil)
 	if err != nil {
 		return err
@@ -105,7 +103,7 @@ func (c *HikvisionClient) SearchRecordings(channel int, start, end time.Time) ([
 		end.Format("2006-01-02T15:04:05Z"),
 	)
 
-	url := fmt.Sprintf("https://%s:%d/ISAPI/ContentMgmt/search", c.ip, c.port)
+	url := fmt.Sprintf("https://%s/ISAPI/ContentMgmt/search", c.ip)
 	resp, err := c.doDigest("POST", url, strings.NewReader(searchXML))
 	if err != nil {
 		return nil, fmt.Errorf("search request: %w", err)
@@ -136,7 +134,7 @@ func (c *HikvisionClient) DownloadClip(playbackURI, outputPath string) error {
 	safeURI := strings.ReplaceAll(playbackURI, "&", "&amp;")
 	downloadXML := fmt.Sprintf(`<downloadRequest><playbackURI>%s</playbackURI></downloadRequest>`, safeURI)
 
-	downloadURL := fmt.Sprintf("https://%s:%d/ISAPI/ContentMgmt/download", c.ip, c.port)
+	downloadURL := fmt.Sprintf("https://%s/ISAPI/ContentMgmt/download", c.ip)
 
 	// Use a longer timeout for downloads
 	oldTimeout := c.client.Timeout

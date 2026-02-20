@@ -271,14 +271,10 @@ func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, 
 		}
 		return
 	}
-	nvrPort := h.settings.GetInt("nvr.port")
-	if nvrPort == 0 {
-		nvrPort = 443
-	}
 	nvrUsername := h.settings.Get("nvr.username")
 	nvrPassword := h.settings.Get("nvr.password")
 
-	nvrClient := services.NewHikvisionClient(nvrIP, nvrPort, nvrUsername, nvrPassword)
+	nvrClient := services.NewHikvisionClient(nvrIP, nvrUsername, nvrPassword)
 
 	channel := services.NVRChannel(cam)
 

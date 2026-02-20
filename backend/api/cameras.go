@@ -482,15 +482,11 @@ func (h *CamerasHandler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "NVR IP not configured in settings"})
 		return
 	}
-	nvrPort := h.settings.GetInt("nvr.port")
-	if nvrPort == 0 {
-		nvrPort = 443
-	}
 	nvrUsername := h.settings.Get("nvr.username")
 	nvrPassword := h.settings.Get("nvr.password")
 	channel := services.NVRChannel(cam)
 
-	client := services.NewHikvisionClient(nvrIP, nvrPort, nvrUsername, nvrPassword)
+	client := services.NewHikvisionClient(nvrIP, nvrUsername, nvrPassword)
 	data, err := client.Snapshot(channel)
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("snapshot failed: %v", err)})

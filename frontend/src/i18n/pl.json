@@ -124,8 +124,6 @@
   "settings.nvr_title": "NVR",
   "settings.nvr_ip": "Adres IP NVR",
   "settings.nvr_ip_hint": "Adres IP rejestratora Hikvision",
-  "settings.nvr_port": "Port HTTPS",
-  "settings.nvr_port_hint": "Port HTTPS ISAPI (zwykle 443)",
   "settings.nvr_rtsp_port": "Port RTSP",
   "settings.nvr_rtsp_port_hint": "Port strumieniowania RTSP (zwykle 554)",
   "settings.nvr_username": "Nazwa użytkownika",

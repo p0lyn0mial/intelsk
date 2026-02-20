@@ -46,7 +46,6 @@ const clipFields: FieldDef[] = [
 
 const nvrFields: FieldDef[] = [
   { key: 'nvr.ip', label: 'settings.nvr_ip', hint: 'settings.nvr_ip_hint', type: 'string' },
-  { key: 'nvr.port', label: 'settings.nvr_port', hint: 'settings.nvr_port_hint', type: 'int', min: 1, max: 65535 },
   { key: 'nvr.rtsp_port', label: 'settings.nvr_rtsp_port', hint: 'settings.nvr_rtsp_port_hint', type: 'int', min: 1, max: 65535 },
   { key: 'nvr.username', label: 'settings.nvr_username', hint: 'settings.nvr_username_hint', type: 'string' },
   { key: 'nvr.password', label: 'settings.nvr_password', hint: 'settings.nvr_password_hint', type: 'password' },
@@ -248,27 +247,29 @@ export default function SettingsPage() {
     return String(val);
   };
 
+  const renderResetLink = (fieldKey: string, fieldType: string) => {
+    if (isDefault(fieldKey)) return null;
+    const defaultLabel = t('settings.default', { value: formatDefault(fieldKey, fieldType) });
+    return (
+      <a
+        href="#"
+        onClick={(e) => { e.preventDefault(); handleReset(fieldKey); }}
+        className="block text-xs text-blue-500 hover:text-blue-700 underline mt-1"
+      >
+        {defaultLabel}
+      </a>
+    );
+  };
+
   const renderField = (field: FieldDef) => {
     const value = form[field.key];
-    const defaultLabel = t('settings.default', { value: formatDefault(field.key, field.type) });
 
     if (field.type === 'string' || field.type === 'password') {
       return (
         <label key={field.key} className="block py-3">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium text-gray-700">{t(field.label)}</span>
-            <span className="text-xs text-gray-400">
-              {t(field.hint)}
-              {!isDefault(field.key) && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); handleReset(field.key); }}
-                  className="ml-2 text-blue-500 hover:text-blue-700"
-                >
-                  {defaultLabel}
-                </button>
-              )}
-            </span>
+            <span className="text-xs text-gray-400">{t(field.hint)}</span>
           </div>
           <input
             type={field.type === 'password' ? 'password' : 'text'}
@@ -277,6 +278,7 @@ export default function SettingsPage() {
             onChange={(e) => handleChange(field.key, e.target.value)}
             className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
+          {renderResetLink(field.key, field.type)}
         </label>
       );
     }
@@ -285,18 +287,8 @@ export default function SettingsPage() {
         <label key={field.key} className="flex items-center justify-between py-3">
           <div>
             <div className="text-sm font-medium text-gray-700">{t(field.label)}</div>
-            <div className="text-xs text-gray-400">
-              {t(field.hint)}
-              {!isDefault(field.key) && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.preventDefault(); handleReset(field.key); }}
-                  className="ml-2 text-blue-500 hover:text-blue-700"
-                >
-                  {defaultLabel}
-                </button>
-              )}
-            </div>
+            <div className="text-xs text-gray-400">{t(field.hint)}</div>
+            {renderResetLink(field.key, field.type)}
           </div>
           <input
             type="checkbox"
@@ -311,18 +303,7 @@ export default function SettingsPage() {
       <label key={field.key} className="block py-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-medium text-gray-700">{t(field.label)}</span>
-          <span className="text-xs text-gray-400">
-            {t(field.hint)}
-            {!isDefault(field.key) && (
-              <button
-                type="button"
-                onClick={(e) => { e.preventDefault(); handleReset(field.key); }}
-                className="ml-2 text-blue-500 hover:text-blue-700"
-              >
-                {defaultLabel}
-              </button>
-            )}
-          </span>
+          <span className="text-xs text-gray-400">{t(field.hint)}</span>
         </div>
         <input
           type="number"
@@ -337,6 +318,7 @@ export default function SettingsPage() {
           }}
           className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
         />
+        {renderResetLink(field.key, field.type)}
       </label>
     );
   };

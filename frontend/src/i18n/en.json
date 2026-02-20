@@ -124,8 +124,6 @@
   "settings.nvr_title": "NVR",
   "settings.nvr_ip": "NVR IP address",
   "settings.nvr_ip_hint": "IP address of the Hikvision NVR",
-  "settings.nvr_port": "HTTPS port",
-  "settings.nvr_port_hint": "ISAPI HTTPS port (usually 443)",
   "settings.nvr_rtsp_port": "RTSP port",
   "settings.nvr_rtsp_port_hint": "RTSP streaming port (usually 554)",
   "settings.nvr_username": "Username",
