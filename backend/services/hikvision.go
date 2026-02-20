@@ -2,6 +2,7 @@ package services
 
 import (
 	"crypto/md5"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/xml"
 	"fmt"
@@ -31,7 +32,12 @@ func NewHikvisionClient(ip string, port int, username, password string) *Hikvisi
 		port:     port,
 		username: username,
 		password: password,
-		client:   &http.Client{Timeout: 30 * time.Second},
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		},
 	}
 }
 
@@ -46,7 +52,7 @@ type Recording struct {
 
 // Snapshot fetches a JPEG snapshot from the given channel.
 func (c *HikvisionClient) Snapshot(channel int) ([]byte, error) {
-	url := fmt.Sprintf("http://%s:%d/ISAPI/Streaming/channels/%d01/picture", c.ip, c.port, channel)
+	url := fmt.Sprintf("https://%s:%d/ISAPI/Streaming/channels/%d01/picture", c.ip, c.port, channel)
 	resp, err := c.doDigest("GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("snapshot request: %w", err)
@@ -60,7 +66,7 @@ func (c *HikvisionClient) Snapshot(channel int) ([]byte, error) {
 
 // Ping checks if the device is reachable.
 func (c *HikvisionClient) Ping() error {
-	url := fmt.Sprintf("http://%s:%d/ISAPI/System/status", c.ip, c.port)
+	url := fmt.Sprintf("https://%s:%d/ISAPI/System/status", c.ip, c.port)
 	resp, err := c.doDigest("GET", url, nil)
 	if err != nil {
 		return err
@@ -99,7 +105,7 @@ func (c *HikvisionClient) SearchRecordings(channel int, start, end time.Time) ([
 		end.Format("2006-01-02T15:04:05Z"),
 	)
 
-	url := fmt.Sprintf("http://%s:%d/ISAPI/ContentMgmt/search", c.ip, c.port)
+	url := fmt.Sprintf("https://%s:%d/ISAPI/ContentMgmt/search", c.ip, c.port)
 	resp, err := c.doDigest("POST", url, strings.NewReader(searchXML))
 	if err != nil {
 		return nil, fmt.Errorf("search request: %w", err)
@@ -130,7 +136,7 @@ func (c *HikvisionClient) DownloadClip(playbackURI, outputPath string) error {
 	safeURI := strings.ReplaceAll(playbackURI, "&", "&amp;")
 	downloadXML := fmt.Sprintf(`<downloadRequest><playbackURI>%s</playbackURI></downloadRequest>`, safeURI)
 
-	downloadURL := fmt.Sprintf("http://%s:%d/ISAPI/ContentMgmt/download", c.ip, c.port)
+	downloadURL := fmt.Sprintf("https://%s:%d/ISAPI/ContentMgmt/download", c.ip, c.port)
 
 	// Use a longer timeout for downloads
 	oldTimeout := c.client.Timeout

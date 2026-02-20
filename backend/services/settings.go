@@ -28,7 +28,7 @@ var settingDefs = []settingDef{
 	{"clip.batch_size", "int", "32", 1, 256},
 	{"clip.model", "string", "mobileclip-s0", 0, 0},
 	{"nvr.ip", "string", "", 0, 0},
-	{"nvr.port", "int", "80", 1, 65535},
+	{"nvr.port", "int", "443", 1, 65535},
 	{"nvr.rtsp_port", "int", "554", 1, 65535},
 	{"nvr.username", "string", "", 0, 0},
 	{"nvr.password", "string", "", 0, 0},
@@ -63,7 +63,7 @@ func NewSettingsService(db *sql.DB, cfg *config.AppConfig) *SettingsService {
 	s.cache["clip.batch_size"] = strconv.Itoa(cfg.CLIP.BatchSize)
 	s.cache["clip.model"] = "mobileclip-s0"
 	s.cache["nvr.ip"] = ""
-	s.cache["nvr.port"] = "80"
+	s.cache["nvr.port"] = "443"
 	s.cache["nvr.rtsp_port"] = "554"
 	s.cache["nvr.username"] = ""
 	s.cache["nvr.password"] = ""

@@ -484,7 +484,7 @@ func (h *CamerasHandler) Snapshot(w http.ResponseWriter, r *http.Request) {
 	}
 	nvrPort := h.settings.GetInt("nvr.port")
 	if nvrPort == 0 {
-		nvrPort = 80
+		nvrPort = 443
 	}
 	nvrUsername := h.settings.Get("nvr.username")
 	nvrPassword := h.settings.Get("nvr.password")
