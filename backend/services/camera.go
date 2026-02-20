@@ -446,7 +446,7 @@ func (s *CameraService) CleanData(id string, scope string) error {
 	return nil
 }
 
-// DeleteVideo removes a single video file for a camera.
+// DeleteVideo removes a single video file and its associated frames and embeddings.
 func (s *CameraService) DeleteVideo(id, date, filename string) error {
 	if _, err := s.Get(id); err != nil {
 		return err
@@ -467,6 +467,9 @@ func (s *CameraService) DeleteVideo(id, date, filename string) error {
 		return fmt.Errorf("removing video: %w", err)
 	}
 
+	// Remove frames and embeddings associated with this video
+	s.cleanVideoFramesAndEmbeddings(id, safeDate, filePath)
+
 	// Clean up empty date directory
 	dateDir := filepath.Join(s.cfg.App.DataDir, "videos", id, safeDate)
 	entries, err := os.ReadDir(dateDir)
@@ -475,6 +478,47 @@ func (s *CameraService) DeleteVideo(id, date, filename string) error {
 	}
 
 	return nil
+}
+
+// cleanVideoFramesAndEmbeddings removes frames, manifest entries, and DB embeddings
+// that were extracted from the given video file.
+func (s *CameraService) cleanVideoFramesAndEmbeddings(cameraID, date, videoPath string) {
+	manifestPath := filepath.Join(s.cfg.Extraction.StoragePath, cameraID, date, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return
+	}
+
+	var manifest []models.FrameMetadata
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return
+	}
+
+	// Split manifest into entries to keep vs entries to remove
+	kept := make([]models.FrameMetadata, 0, len(manifest))
+	for _, f := range manifest {
+		if f.SourceVideo == videoPath {
+			// Delete the frame image file
+			os.Remove(f.FramePath)
+			// Delete embeddings referencing this frame
+			s.db.Exec("DELETE FROM clip_embeddings WHERE frame_path = ?", f.FramePath)
+			s.db.Exec("DELETE FROM face_embeddings WHERE frame_path = ?", f.FramePath)
+		} else {
+			kept = append(kept, f)
+		}
+	}
+
+	if len(kept) == 0 {
+		// No frames left for this date — remove the entire date directory
+		os.RemoveAll(filepath.Join(s.cfg.Extraction.StoragePath, cameraID, date))
+	} else {
+		// Rewrite manifest with remaining entries
+		out, err := json.MarshalIndent(kept, "", "  ")
+		if err != nil {
+			return
+		}
+		os.WriteFile(manifestPath, out, 0o644)
+	}
 }
 
 func (s *CameraService) computeStatus(cameraID string) string {
