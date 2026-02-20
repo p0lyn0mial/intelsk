@@ -58,4 +58,5 @@ export type SettingsMap = Record<string, number | boolean>;
 
 export interface SettingsResponse {
   settings: SettingsMap;
+  defaults: SettingsMap;
 }

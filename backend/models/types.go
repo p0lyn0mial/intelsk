@@ -77,6 +77,7 @@ type CameraInfo struct {
 
 type SettingsResponse struct {
 	Settings map[string]any `json:"settings"`
+	Defaults map[string]any `json:"defaults"`
 }
 
 type SettingsUpdateRequest struct {

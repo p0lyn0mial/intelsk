@@ -20,6 +20,7 @@ func NewSettingsHandler(settings *services.SettingsService) *SettingsHandler {
 func (h *SettingsHandler) Get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, models.SettingsResponse{
 		Settings: h.settings.All(),
+		Defaults: h.settings.Defaults(),
 	})
 }
 
@@ -41,11 +42,13 @@ func (h *SettingsHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{
 			"errors":   errors,
 			"settings": h.settings.All(),
+			"defaults": h.settings.Defaults(),
 		})
 		return
 	}
 
 	writeJSON(w, http.StatusOK, models.SettingsResponse{
 		Settings: h.settings.All(),
+		Defaults: h.settings.Defaults(),
 	})
 }

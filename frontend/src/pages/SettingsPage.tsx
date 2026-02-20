@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getSettings, updateSettings } from '../api/client';
@@ -34,19 +34,27 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [form, setForm] = useState<SettingsMap>({});
+  const [defaults, setDefaults] = useState<SettingsMap>({});
   const [flash, setFlash] = useState<string | null>(null);
 
-  const { data: settings, isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: getSettings,
-    onSuccess: (data: SettingsMap) => setForm(data),
   });
+
+  useEffect(() => {
+    if (data) {
+      setForm(data.settings);
+      setDefaults(data.defaults);
+    }
+  }, [data]);
 
   const mutation = useMutation({
     mutationFn: updateSettings,
-    onSuccess: (data) => {
-      setForm(data);
-      queryClient.setQueryData(['settings'], data);
+    onSuccess: (resp) => {
+      setForm(resp.settings);
+      setDefaults(resp.defaults);
+      queryClient.setQueryData(['settings'], resp);
       setFlash(t('settings.saved'));
       setTimeout(() => setFlash(null), 3000);
     },
@@ -56,11 +64,17 @@ export default function SettingsPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handleReset = (key: string) => {
+    if (defaults[key] !== undefined) {
+      setForm((prev) => ({ ...prev, [key]: defaults[key] }));
+    }
+  };
+
   const handleSave = () => {
     mutation.mutate(form);
   };
 
-  const dirty = settings && JSON.stringify(form) !== JSON.stringify(settings);
+  const dirty = data && JSON.stringify(form) !== JSON.stringify(data.settings);
 
   if (isLoading) {
     return (
@@ -70,14 +84,38 @@ export default function SettingsPage() {
     );
   }
 
+  const isDefault = (key: string) => {
+    return defaults[key] !== undefined && form[key] === defaults[key];
+  };
+
+  const formatDefault = (key: string, type: string) => {
+    const val = defaults[key];
+    if (val === undefined) return '';
+    if (type === 'bool') return val ? 'true' : 'false';
+    return String(val);
+  };
+
   const renderField = (field: FieldDef) => {
     const value = form[field.key];
+    const defaultLabel = t('settings.default', { value: formatDefault(field.key, field.type) });
+
     if (field.type === 'bool') {
       return (
         <label key={field.key} className="flex items-center justify-between py-3">
           <div>
             <div className="text-sm font-medium text-gray-700">{t(field.label)}</div>
-            <div className="text-xs text-gray-400">{t(field.hint)}</div>
+            <div className="text-xs text-gray-400">
+              {t(field.hint)}
+              {!isDefault(field.key) && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); handleReset(field.key); }}
+                  className="ml-2 text-blue-500 hover:text-blue-700"
+                >
+                  {defaultLabel}
+                </button>
+              )}
+            </div>
           </div>
           <input
             type="checkbox"
@@ -92,7 +130,18 @@ export default function SettingsPage() {
       <label key={field.key} className="block py-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-medium text-gray-700">{t(field.label)}</span>
-          <span className="text-xs text-gray-400">{t(field.hint)}</span>
+          <span className="text-xs text-gray-400">
+            {t(field.hint)}
+            {!isDefault(field.key) && (
+              <button
+                type="button"
+                onClick={(e) => { e.preventDefault(); handleReset(field.key); }}
+                className="ml-2 text-blue-500 hover:text-blue-700"
+              >
+                {defaultLabel}
+              </button>
+            )}
+          </span>
         </div>
         <input
           type="number"
@@ -100,6 +149,7 @@ export default function SettingsPage() {
           step={field.step ?? 1}
           min={field.min}
           max={field.max}
+          placeholder={formatDefault(field.key, field.type)}
           onChange={(e) => {
             const v = field.type === 'float' ? parseFloat(e.target.value) : parseInt(e.target.value, 10);
             if (!isNaN(v)) handleChange(field.key, v);

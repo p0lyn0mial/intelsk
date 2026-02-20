@@ -47,7 +47,6 @@ func NewSettingsService(db *sql.DB, cfg *config.AppConfig) *SettingsService {
 
 	// Build defaults from config values
 	s.cache["search.min_score"] = "0.18"
-	s.cache["search.default_limit"] = strconv.Itoa(cfg.Extraction.TimeIntervalSec) // use 20 as default
 	s.cache["search.default_limit"] = "20"
 	s.cache["extraction.time_interval_sec"] = strconv.Itoa(cfg.Extraction.TimeIntervalSec)
 	s.cache["extraction.output_quality"] = strconv.Itoa(cfg.Extraction.OutputQuality)
@@ -55,10 +54,22 @@ func NewSettingsService(db *sql.DB, cfg *config.AppConfig) *SettingsService {
 	s.cache["extraction.dedup_phash_threshold"] = strconv.Itoa(cfg.Extraction.DedupPHashThreshold)
 	s.cache["clip.batch_size"] = strconv.Itoa(cfg.CLIP.BatchSize)
 
-	// Load DB overrides
+	// Seed DB with defaults for any keys not yet persisted, then load all
+	s.seedDefaults()
 	s.loadFromDB()
 
 	return s
+}
+
+// seedDefaults writes default values into the DB for any settings that don't
+// have a row yet, so every setting is always persisted.
+func (s *SettingsService) seedDefaults() {
+	for key, val := range s.cache {
+		s.db.Exec(
+			`INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))`,
+			key, val,
+		)
+	}
 }
 
 func (s *SettingsService) loadFromDB() {
@@ -179,6 +190,27 @@ func (s *SettingsService) All() map[string]any {
 			result[key] = v
 		default:
 			result[key] = raw
+		}
+	}
+	return result
+}
+
+// Defaults returns all setting default values as typed values.
+func (s *SettingsService) Defaults() map[string]any {
+	result := make(map[string]any, len(s.defs))
+	for _, def := range s.defs {
+		switch def.Type {
+		case "float":
+			v, _ := strconv.ParseFloat(def.Default, 64)
+			result[def.Key] = v
+		case "int":
+			v, _ := strconv.Atoi(def.Default)
+			result[def.Key] = v
+		case "bool":
+			v, _ := strconv.ParseBool(def.Default)
+			result[def.Key] = v
+		default:
+			result[def.Key] = def.Default
 		}
 	}
 	return result

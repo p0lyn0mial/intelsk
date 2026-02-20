@@ -73,16 +73,14 @@ export async function searchText(req: TextSearchRequest): Promise<SearchResponse
   });
 }
 
-export async function getSettings(): Promise<SettingsMap> {
-  const res = await fetchJSON<SettingsResponse>(`${BASE}/settings`);
-  return res.settings;
+export async function getSettings(): Promise<SettingsResponse> {
+  return fetchJSON<SettingsResponse>(`${BASE}/settings`);
 }
 
-export async function updateSettings(settings: Partial<SettingsMap>): Promise<SettingsMap> {
-  const res = await fetchJSON<SettingsResponse>(`${BASE}/settings`, {
+export async function updateSettings(settings: Partial<SettingsMap>): Promise<SettingsResponse> {
+  return fetchJSON<SettingsResponse>(`${BASE}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings }),
   });
-  return res.settings;
 }
