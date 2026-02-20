@@ -88,10 +88,10 @@ export default function CamerasPage() {
                   </div>
                 </div>
                 <p className="text-sm text-gray-500 mt-1">{cam.id}</p>
-                {statsMap[cam.id] && statsMap[cam.id].length > 0 && (
+                {statsMap[cam.id] && statsMap[cam.id].some((d) => d.video_count > 0) && (
                   <p className="text-xs text-gray-400 mt-1">
                     {t('cameras.stats_summary', {
-                      dates: statsMap[cam.id].length,
+                      dates: statsMap[cam.id].filter((d) => d.video_count > 0).length,
                       videos: statsMap[cam.id].reduce((s, d) => s + d.video_count, 0),
                       frames: statsMap[cam.id].reduce((s, d) => s + d.frame_count, 0),
                     })}

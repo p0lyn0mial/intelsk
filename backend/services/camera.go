@@ -57,6 +57,9 @@ func (s *CameraService) List() ([]models.CameraInfo, error) {
 	for _, cam := range dbCameras {
 		cameras = append(cameras, cam)
 	}
+	sort.Slice(cameras, func(i, j int) bool {
+		return cameras[i].ID < cameras[j].ID
+	})
 	return cameras, nil
 }
 
