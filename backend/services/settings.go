@@ -26,6 +26,12 @@ var settingDefs = []settingDef{
 	{"extraction.dedup_enabled", "bool", "true", 0, 0},
 	{"extraction.dedup_phash_threshold", "int", "8", 0, 64},
 	{"clip.batch_size", "int", "32", 1, 256},
+	{"clip.model", "string", "mobileclip-s0", 0, 0},
+	{"nvr.ip", "string", "", 0, 0},
+	{"nvr.port", "int", "80", 1, 65535},
+	{"nvr.rtsp_port", "int", "554", 1, 65535},
+	{"nvr.username", "string", "", 0, 0},
+	{"nvr.password", "string", "", 0, 0},
 }
 
 type SettingsService struct {
@@ -55,6 +61,12 @@ func NewSettingsService(db *sql.DB, cfg *config.AppConfig) *SettingsService {
 	s.cache["extraction.dedup_enabled"] = strconv.FormatBool(cfg.Extraction.DedupEnabled)
 	s.cache["extraction.dedup_phash_threshold"] = strconv.Itoa(cfg.Extraction.DedupPHashThreshold)
 	s.cache["clip.batch_size"] = strconv.Itoa(cfg.CLIP.BatchSize)
+	s.cache["clip.model"] = "mobileclip-s0"
+	s.cache["nvr.ip"] = ""
+	s.cache["nvr.port"] = "80"
+	s.cache["nvr.rtsp_port"] = "554"
+	s.cache["nvr.username"] = ""
+	s.cache["nvr.password"] = ""
 
 	// Seed DB with defaults for any keys not yet persisted, then load all
 	s.seedDefaults()

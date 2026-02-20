@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CameraInfo, CreateCameraRequest, UpdateCameraRequest } from '../api/types';
-import { createCamera, updateCamera, deleteCamera, uploadVideos } from '../api/client';
+import { createCamera, updateCamera, deleteCamera, uploadVideos, streamUploadStatus } from '../api/client';
 
 // --- Shared modal backdrop ---
 
@@ -26,7 +26,7 @@ function ModalBackdrop({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-md"
+        className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {children}
@@ -47,7 +47,10 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
   const { t } = useTranslation();
   const [id, setId] = useState('');
   const [name, setName] = useState('');
+  const [cameraType, setCameraType] = useState<'local' | 'hikvision'>('local');
   const [transcode, setTranscode] = useState(true);
+  const [processOnUpload, setProcessOnUpload] = useState(true);
+  const [nvrChannel, setNvrChannel] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -55,7 +58,10 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
     if (isOpen) {
       setId('');
       setName('');
+      setCameraType('local');
       setTranscode(true);
+      setProcessOnUpload(true);
+      setNvrChannel(1);
       setError('');
     }
   }, [isOpen]);
@@ -67,7 +73,10 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
     setLoading(true);
     setError('');
     try {
-      const req: CreateCameraRequest = { id, name, type: 'local', config: { transcode } };
+      const config: Record<string, unknown> = cameraType === 'local'
+        ? { transcode, process_on_upload: processOnUpload }
+        : { nvr_channel: nvrChannel, transcode, process_on_upload: processOnUpload };
+      const req: CreateCameraRequest = { id, name, type: cameraType, config };
       await createCamera(req);
       onCreated();
       onClose();
@@ -88,6 +97,35 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
           {error && (
             <div className="text-sm text-red-600 bg-red-50 rounded p-2">{error}</div>
           )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {t('cameras.type_selector')}
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setCameraType('local')}
+                className={`px-3 py-1.5 text-sm rounded ${
+                  cameraType === 'local'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {t('cameras.type_local')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setCameraType('hikvision')}
+                className={`px-3 py-1.5 text-sm rounded ${
+                  cameraType === 'hikvision'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {t('cameras.type_hikvision')}
+              </button>
+            </div>
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('cameras.field_id')}
@@ -117,6 +155,22 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
               placeholder="Front Door Camera"
             />
           </div>
+          {cameraType === 'hikvision' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('cameras.field_nvr_channel')}
+              </label>
+              <input
+                type="number"
+                value={nvrChannel}
+                onChange={(e) => setNvrChannel(parseInt(e.target.value, 10) || 1)}
+                min={1}
+                max={16}
+                className="w-full border rounded px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">{t('cameras.field_nvr_channel_hint')}</p>
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input
               type="checkbox"
@@ -125,6 +179,15 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
               className="rounded"
             />
             {t('cameras.transcode')}
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={processOnUpload}
+              onChange={(e) => setProcessOnUpload(e.target.checked)}
+              className="rounded"
+            />
+            {t('cameras.process_on_upload')}
           </label>
         </div>
         <div className="px-6 py-4 border-t flex justify-end gap-3">
@@ -161,6 +224,8 @@ export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCame
   const { t } = useTranslation();
   const [name, setName] = useState('');
   const [transcode, setTranscode] = useState(true);
+  const [processOnUpload, setProcessOnUpload] = useState(true);
+  const [nvrChannel, setNvrChannel] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -168,18 +233,25 @@ export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCame
     if (isOpen && camera) {
       setName(camera.name);
       setTranscode(camera.config?.transcode !== false);
+      setProcessOnUpload(camera.config?.process_on_upload !== false);
+      setNvrChannel((camera.config?.nvr_channel as number) ?? 1);
       setError('');
     }
   }, [isOpen, camera]);
 
   if (!isOpen || !camera) return null;
 
+  const isHikvision = camera.type === 'hikvision';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
     try {
-      const req: UpdateCameraRequest = { name, config: { transcode } };
+      const config: Record<string, unknown> = isHikvision
+        ? { nvr_channel: nvrChannel, transcode, process_on_upload: processOnUpload }
+        : { transcode, process_on_upload: processOnUpload };
+      const req: UpdateCameraRequest = { name, config };
       await updateCamera(camera.id, req);
       onUpdated();
       onClose();
@@ -223,6 +295,22 @@ export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCame
               className="w-full border rounded px-3 py-2 text-sm"
             />
           </div>
+          {isHikvision && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {t('cameras.field_nvr_channel')}
+              </label>
+              <input
+                type="number"
+                value={nvrChannel}
+                onChange={(e) => setNvrChannel(parseInt(e.target.value, 10) || 1)}
+                min={1}
+                max={16}
+                className="w-full border rounded px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-gray-500 mt-1">{t('cameras.field_nvr_channel_hint')}</p>
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input
               type="checkbox"
@@ -231,6 +319,15 @@ export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCame
               className="rounded"
             />
             {t('cameras.transcode')}
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={processOnUpload}
+              onChange={(e) => setProcessOnUpload(e.target.checked)}
+              className="rounded"
+            />
+            {t('cameras.process_on_upload')}
           </label>
         </div>
         <div className="px-6 py-4 border-t flex justify-end gap-3">
@@ -350,16 +447,23 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [jobStatus, setJobStatus] = useState<{
+    stage: string;
+    current?: number;
+    total?: number;
+    file?: string;
+    framesDone?: number;
+    framesTotal?: number;
+  } | null>(null);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   useEffect(() => {
     if (isOpen) {
       setMode('files');
       setSelectedFiles([]);
       setUploadProgress(0);
+      setJobStatus(null);
       setError('');
-      setSuccess('');
     }
   }, [isOpen]);
 
@@ -373,28 +477,102 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
     );
     setSelectedFiles(mp4Files);
     setError('');
-    setSuccess('');
   };
 
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
     setLoading(true);
     setUploadProgress(0);
+    setJobStatus(null);
     setError('');
-    setSuccess('');
     try {
+      // Phase 1: Upload files
       const result = await uploadVideos(camera.id, selectedFiles, (loaded, total) => {
         setUploadProgress(Math.round((loaded / total) * 100));
       });
-      setSuccess(t('cameras.upload_success', { count: result.paths.length }));
-      setSelectedFiles([]);
+
+      // Phases 2-4: Transcode + Extract + Index via SSE
+      if (result.job_id) {
+        await new Promise<void>((resolve) => {
+          streamUploadStatus(
+            camera.id,
+            result.job_id!,
+            (event) => {
+              setJobStatus({
+                stage: event.stage,
+                current: event.current,
+                total: event.total,
+                file: event.file,
+                framesDone: event.frames_done,
+                framesTotal: event.frames_total,
+              });
+            },
+            () => resolve(),
+          );
+        });
+      }
+
+      // Done — refresh data and auto-close
       onUploaded();
+      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
       setLoading(false);
     }
   };
+
+  // Compute progress bar percent and label based on current stage
+  let progressPercent = uploadProgress;
+  let progressLabel = t('cameras.uploading');
+
+  if (jobStatus) {
+    switch (jobStatus.stage) {
+      case 'transcoding':
+      case 'done':
+        progressPercent = jobStatus.total && jobStatus.total > 0
+          ? Math.round((jobStatus.current! / jobStatus.total) * 100)
+          : 0;
+        progressLabel = jobStatus.total && jobStatus.total > 0
+          ? t('cameras.transcoding', { current: jobStatus.current, total: jobStatus.total })
+          : t('cameras.uploading');
+        break;
+      case 'extracting':
+        progressPercent = 100;
+        progressLabel = t('cameras.extracting');
+        break;
+      case 'indexing':
+        progressPercent = jobStatus.framesTotal && jobStatus.framesTotal > 0
+          ? Math.round((jobStatus.framesDone! / jobStatus.framesTotal) * 100)
+          : 0;
+        progressLabel = jobStatus.framesTotal && jobStatus.framesTotal > 0
+          ? t('cameras.indexing', { done: jobStatus.framesDone, total: jobStatus.framesTotal })
+          : t('cameras.indexing', { done: 0, total: 0 });
+        break;
+    }
+  }
+
+  // Button label
+  let buttonLabel = t('cameras.upload');
+  if (loading) {
+    if (jobStatus) {
+      switch (jobStatus.stage) {
+        case 'transcoding':
+        case 'done':
+          buttonLabel = t('cameras.transcoding', { current: jobStatus.current ?? 0, total: jobStatus.total ?? 0 });
+          break;
+        case 'extracting':
+          buttonLabel = t('cameras.extracting');
+          break;
+        case 'indexing':
+          buttonLabel = t('cameras.indexing', { done: jobStatus.framesDone ?? 0, total: jobStatus.framesTotal ?? 0 });
+          break;
+        default:
+          buttonLabel = t('cameras.uploading');
+      }
+    } else {
+      buttonLabel = t('cameras.uploading');
+    }
+  }
 
   return (
     <ModalBackdrop onClose={onClose}>
@@ -405,9 +583,6 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
         <div className="px-6 py-4 space-y-4">
           {error && (
             <div className="text-sm text-red-600 bg-red-50 rounded p-2">{error}</div>
-          )}
-          {success && (
-            <div className="text-sm text-green-600 bg-green-50 rounded p-2">{success}</div>
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -463,7 +638,7 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
               />
             )}
           </div>
-          {selectedFiles.length > 0 && (
+          {selectedFiles.length > 0 && !loading && (
             <div>
               <p className="text-sm text-gray-600 mb-1">
                 {t('cameras.upload_selected', { count: selectedFiles.length })}
@@ -480,10 +655,10 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
               <div className="w-full bg-gray-200 rounded-full h-2.5">
                 <div
                   className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
+                  style={{ width: `${progressPercent}%` }}
                 />
               </div>
-              <p className="text-xs text-gray-500 text-right">{uploadProgress}%</p>
+              <p className="text-xs text-gray-500 text-right">{progressLabel}</p>
             </div>
           )}
         </div>
@@ -501,7 +676,7 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
             disabled={loading || selectedFiles.length === 0}
             className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 min-h-[44px]"
           >
-            {loading ? t('cameras.uploading') : t('cameras.upload')}
+            {buttonLabel}
           </button>
         </div>
       </div>

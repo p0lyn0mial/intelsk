@@ -17,10 +17,11 @@ import (
 )
 
 type ProcessHandler struct {
-	cfg      *config.AppConfig
-	mlClient *services.MLClient
-	storage  *services.Storage
-	settings *services.SettingsService
+	cfg       *config.AppConfig
+	mlClient  *services.MLClient
+	storage   *services.Storage
+	settings  *services.SettingsService
+	cameraSvc *services.CameraService
 
 	mu         sync.Mutex
 	activeJobs map[string]*jobState
@@ -35,12 +36,13 @@ type jobState struct {
 	doneCh   chan struct{}
 }
 
-func NewProcessHandler(cfg *config.AppConfig, mlClient *services.MLClient, storage *services.Storage, settings *services.SettingsService) *ProcessHandler {
+func NewProcessHandler(cfg *config.AppConfig, mlClient *services.MLClient, storage *services.Storage, settings *services.SettingsService, cameraSvc *services.CameraService) *ProcessHandler {
 	return &ProcessHandler{
 		cfg:        cfg,
 		mlClient:   mlClient,
 		storage:    storage,
 		settings:   settings,
+		cameraSvc:  cameraSvc,
 		activeJobs: make(map[string]*jobState),
 	}
 }
@@ -62,11 +64,17 @@ func (h *ProcessHandler) Start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Quick check: any new videos to process across all cameras × dates?
+	// Skip cache check for hikvision cameras (they need NVR download first)
 	history := loadProcessHistory(h.cfg.Process.HistoryPath)
 	dates, err := dateRange(req.StartDate, req.EndDate)
 	if err == nil {
 		allCached := true
 		for _, camID := range req.CameraIDs {
+			cam, camErr := h.cameraSvc.Get(camID)
+			if camErr == nil && cam.Type == "hikvision" {
+				allCached = false
+				break
+			}
 			for _, date := range dates {
 				videosDir := filepath.Join(h.cfg.App.DataDir, "videos", camID, date)
 				if len(newVideosForDate(history, camID, date, videosDir)) > 0 {
@@ -152,6 +160,12 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 			return
 		}
 
+		// Check if this is a hikvision camera — download recordings from NVR
+		cam, camErr := h.cameraSvc.Get(camID)
+		if camErr == nil && cam.Type == "hikvision" {
+			h.downloadFromNVR(job, cam, dates)
+		}
+
 		for _, date := range dates {
 			videosDir := filepath.Join(h.cfg.App.DataDir, "videos", camID, date)
 			framesDir := filepath.Join(h.cfg.Extraction.StoragePath, camID, date)
@@ -233,8 +247,8 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 			}
 
 			// Record all videos for this camera+date in process history
-			allVideoFiles := listVideoFiles(videosDir)
-			addProcessHistory(h.cfg.Process.HistoryPath, camID, date, allVideoFiles)
+			allVideoFiles := ListVideoFiles(videosDir)
+			AddProcessHistory(h.cfg.Process.HistoryPath, camID, date, allVideoFiles)
 		}
 	}
 
@@ -244,6 +258,86 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 	h.mu.Lock()
 	job.Status = "complete"
 	h.mu.Unlock()
+}
+
+// downloadFromNVR downloads recordings from the NVR for a hikvision camera.
+func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, dates []string) {
+	nvrIP := h.settings.Get("nvr.ip")
+	if nvrIP == "" {
+		job.eventCh <- services.ProgressEvent{
+			Stage:    "error",
+			CameraID: cam.ID,
+			Message:  "NVR IP not configured in settings",
+		}
+		return
+	}
+	nvrPort := h.settings.GetInt("nvr.port")
+	if nvrPort == 0 {
+		nvrPort = 80
+	}
+	nvrUsername := h.settings.Get("nvr.username")
+	nvrPassword := h.settings.Get("nvr.password")
+
+	nvrClient := services.NewHikvisionClient(nvrIP, nvrPort, nvrUsername, nvrPassword)
+
+	channel := services.NVRChannel(cam)
+
+	for _, date := range dates {
+		dayStart, err := time.Parse("2006-01-02", date)
+		if err != nil {
+			continue
+		}
+		dayEnd := dayStart.Add(24*time.Hour - time.Second)
+
+		job.eventCh <- services.ProgressEvent{
+			Stage:    "downloading",
+			CameraID: cam.ID,
+			Message:  fmt.Sprintf("Searching recordings for %s on %s", cam.Name, date),
+		}
+
+		recordings, err := nvrClient.SearchRecordings(channel, dayStart, dayEnd)
+		if err != nil {
+			log.Printf("NVR search failed for %s/%s: %v", cam.ID, date, err)
+			job.eventCh <- services.ProgressEvent{
+				Stage:    "error",
+				CameraID: cam.ID,
+				Message:  fmt.Sprintf("NVR search failed for %s: %v", date, err),
+			}
+			continue
+		}
+
+		if len(recordings) == 0 {
+			continue
+		}
+
+		videosDir := filepath.Join(h.cfg.App.DataDir, "videos", cam.ID, date)
+		os.MkdirAll(videosDir, 0o755)
+
+		for _, rec := range recordings {
+			filename := fmt.Sprintf("%s.mp4", rec.StartTime.Format("1504"))
+			outputPath := filepath.Join(videosDir, filename)
+
+			// Skip if already downloaded
+			if _, err := os.Stat(outputPath); err == nil {
+				continue
+			}
+
+			job.eventCh <- services.ProgressEvent{
+				Stage:    "downloading",
+				CameraID: cam.ID,
+				Message:  fmt.Sprintf("Downloading %s %s-%s...", cam.Name, rec.StartTime.Format("15:04"), rec.EndTime.Format("15:04")),
+			}
+
+			if err := nvrClient.DownloadClip(rec.PlaybackURI, outputPath); err != nil {
+				log.Printf("NVR download failed for %s: %v", filename, err)
+				job.eventCh <- services.ProgressEvent{
+					Stage:    "error",
+					CameraID: cam.ID,
+					Message:  fmt.Sprintf("Download failed for %s: %v", filename, err),
+				}
+			}
+		}
+	}
 }
 
 func (h *ProcessHandler) Status(w http.ResponseWriter, r *http.Request) {
@@ -331,8 +425,8 @@ func loadProcessHistory(path string) []models.ProcessHistoryEntry {
 	return history
 }
 
-// listVideoFiles returns basenames of .mp4 files in a directory.
-func listVideoFiles(dir string) []string {
+// ListVideoFiles returns basenames of .mp4 files in a directory.
+func ListVideoFiles(dir string) []string {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -352,7 +446,7 @@ func listVideoFiles(dir string) []string {
 // camera+date has no Videos list (legacy format), it is treated as fully
 // processed for backward compatibility.
 func newVideosForDate(history []models.ProcessHistoryEntry, cameraID, date, videosDir string) []string {
-	allVideos := listVideoFiles(videosDir)
+	allVideos := ListVideoFiles(videosDir)
 	if len(allVideos) == 0 {
 		return nil
 	}
@@ -384,7 +478,7 @@ func newVideosForDate(history []models.ProcessHistoryEntry, cameraID, date, vide
 	return newVids
 }
 
-func addProcessHistory(path, cameraID, date string, videos []string) {
+func AddProcessHistory(path, cameraID, date string, videos []string) {
 	history := loadProcessHistory(path)
 
 	// Update existing entry or add new one

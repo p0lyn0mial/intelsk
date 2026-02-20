@@ -93,8 +93,8 @@ func (s *CameraService) Create(req models.CreateCameraRequest) (*models.CameraIn
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if req.Type != "local" {
-		return nil, fmt.Errorf("type must be 'local'")
+	if req.Type != "local" && req.Type != "hikvision" {
+		return nil, fmt.Errorf("type must be 'local' or 'hikvision'")
 	}
 
 	// Check for duplicates (DB or filesystem)
@@ -190,8 +190,7 @@ func (s *CameraService) Delete(id string, deleteData bool) error {
 // Upload saves an uploaded file to the camera's video directory.
 // Only works for cameras with type "local".
 func (s *CameraService) Upload(id string, file io.Reader, filename string) (string, error) {
-	cam, err := s.Get(id)
-	if err != nil {
+	if _, err := s.Get(id); err != nil {
 		return "", err
 	}
 
@@ -240,18 +239,11 @@ func (s *CameraService) Upload(id string, file io.Reader, filename string) (stri
 	}
 	out.Close()
 
-	// Transcode HEVC to H.264 if enabled
-	if shouldTranscode(cam.Config) {
-		if err := transcodeIfNeeded(destPath); err != nil {
-			log.Printf("Transcode warning for %s: %v", destPath, err)
-		}
-	}
-
 	return destPath, nil
 }
 
-// probeVideoCodec runs ffprobe and returns the codec name of the first video stream.
-func probeVideoCodec(filePath string) (string, error) {
+// ProbeVideoCodec runs ffprobe and returns the codec name of the first video stream.
+func ProbeVideoCodec(filePath string) (string, error) {
 	out, err := exec.Command(
 		"ffprobe", "-v", "error",
 		"-select_streams", "v:0",
@@ -265,9 +257,9 @@ func probeVideoCodec(filePath string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// transcodeIfNeeded checks the video codec and transcodes HEVC to H.264 in-place.
-func transcodeIfNeeded(filePath string) error {
-	codec, err := probeVideoCodec(filePath)
+// TranscodeIfNeeded checks the video codec and transcodes HEVC to H.264 in-place.
+func TranscodeIfNeeded(filePath string) error {
+	codec, err := ProbeVideoCodec(filePath)
 	if err != nil {
 		return err
 	}
@@ -296,9 +288,23 @@ func transcodeIfNeeded(filePath string) error {
 	return nil
 }
 
-// shouldTranscode returns whether transcoding is enabled for this camera config.
-func shouldTranscode(config map[string]any) bool {
+// ShouldTranscode returns whether transcoding is enabled for this camera config.
+func ShouldTranscode(config map[string]any) bool {
 	v, ok := config["transcode"]
+	if !ok {
+		return true // default enabled
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return true
+	}
+	return b
+}
+
+// ShouldProcessOnUpload returns whether automatic processing (extract + index)
+// should run after uploading videos. Defaults to true.
+func ShouldProcessOnUpload(config map[string]any) bool {
+	v, ok := config["process_on_upload"]
 	if !ok {
 		return true // default enabled
 	}
@@ -536,6 +542,13 @@ func (s *CameraService) computeStatus(cameraID string) string {
 		}
 	}
 	return "offline"
+}
+
+// CameraRTSPUrl builds the RTSP URL for a hikvision camera using NVR settings.
+// The NVR IP, port, and credentials are passed in since cameras connect through the NVR.
+func CameraRTSPUrl(cam *models.CameraInfo, nvrIP string, nvrRTSPPort int, nvrUsername, nvrPassword string) string {
+	channel := NVRChannel(cam)
+	return RTSPUrl(nvrIP, nvrRTSPPort, nvrUsername, nvrPassword, channel)
 }
 
 func (s *CameraService) removeFromProcessHistory(cameraID string) {

@@ -10,8 +10,10 @@ import type {
   TextSearchRequest,
   SearchResponse,
   ProgressEvent,
+  UploadJobEvent,
   SettingsMap,
   SettingsResponse,
+  ModelInfo,
 } from './types';
 
 const BASE = '/api';
@@ -83,7 +85,7 @@ export function uploadVideos(
   id: string,
   files: FileList | File[],
   onProgress?: (loaded: number, total: number) => void,
-): Promise<{ status: string; paths: string[] }> {
+): Promise<{ status: string; paths: string[]; job_id?: string }> {
   return new Promise((resolve, reject) => {
     const formData = new FormData();
     for (let i = 0; i < files.length; i++) {
@@ -106,6 +108,33 @@ export function uploadVideos(
     xhr.onerror = () => reject(new Error('Upload failed'));
     xhr.send(formData);
   });
+}
+
+export function streamUploadStatus(
+  cameraId: string,
+  jobId: string,
+  onEvent: (event: UploadJobEvent) => void,
+  onDone: () => void,
+): () => void {
+  const eventSource = new EventSource(
+    `${BASE}/cameras/${cameraId}/upload/status?job_id=${jobId}`,
+  );
+
+  eventSource.onmessage = (e) => {
+    const event: UploadJobEvent = JSON.parse(e.data);
+    onEvent(event);
+    if (event.stage === 'complete') {
+      eventSource.close();
+      onDone();
+    }
+  };
+
+  eventSource.onerror = () => {
+    eventSource.close();
+    onDone();
+  };
+
+  return () => eventSource.close();
 }
 
 export async function startProcess(req: ProcessRequest): Promise<ProcessResponse> {
@@ -156,10 +185,47 @@ export async function getSettings(): Promise<SettingsResponse> {
   return fetchJSON<SettingsResponse>(`${BASE}/settings`);
 }
 
+export interface NVRStatusResponse {
+  status: 'connected' | 'error' | 'not_configured';
+  error?: string;
+}
+
+export async function getNVRStatus(): Promise<NVRStatusResponse> {
+  return fetchJSON<NVRStatusResponse>(`${BASE}/settings/nvr/status`);
+}
+
 export async function updateSettings(settings: Partial<SettingsMap>): Promise<SettingsResponse> {
   return fetchJSON<SettingsResponse>(`${BASE}/settings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ settings }),
   });
+}
+
+export async function getModelInfo(): Promise<ModelInfo> {
+  return fetchJSON<ModelInfo>(`${BASE}/clip/model`);
+}
+
+export async function switchModel(preset: string): Promise<ModelInfo> {
+  return fetchJSON<ModelInfo>(`${BASE}/clip/model`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preset }),
+  });
+}
+
+export function getCameraSnapshotUrl(id: string): string {
+  return `${BASE}/cameras/${id}/snapshot`;
+}
+
+export async function startStream(id: string): Promise<void> {
+  await fetchJSON(`${BASE}/cameras/${id}/stream/start`, { method: 'POST' });
+}
+
+export async function stopStream(id: string): Promise<void> {
+  await fetchJSON(`${BASE}/cameras/${id}/stream/stop`, { method: 'POST' });
+}
+
+export function getStreamPlaylistUrl(id: string): string {
+  return `${BASE}/cameras/${id}/stream/index.m3u8`;
 }

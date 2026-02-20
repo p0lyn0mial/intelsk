@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { getCameras, getCameraStats } from '../api/client';
+import { getCameras, getCameraStats, getCameraSnapshotUrl } from '../api/client';
 import type { CameraInfo, CameraDateStats } from '../api/types';
 import {
   AddCameraModal,
@@ -10,6 +10,7 @@ import {
   DeleteCameraDialog,
   UploadVideoModal,
 } from '../components/CameraModals';
+import { LiveStreamModal } from '../components/LiveStreamModal';
 
 export default function CamerasPage() {
   const { t } = useTranslation();
@@ -38,8 +39,12 @@ export default function CamerasPage() {
   const [editCamera, setEditCamera] = useState<CameraInfo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CameraInfo | null>(null);
   const [uploadTarget, setUploadTarget] = useState<CameraInfo | null>(null);
+  const [liveTarget, setLiveTarget] = useState<CameraInfo | null>(null);
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ['cameras'] });
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['cameras'] });
+    queryClient.invalidateQueries({ queryKey: ['cameraStats'] });
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -67,9 +72,30 @@ export default function CamerasPage() {
               className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow"
             >
               <Link to={`/cameras/${cam.id}`} className="block">
+                {cam.type === 'hikvision' && (
+                  <div className="mb-2 rounded overflow-hidden bg-gray-100 aspect-video">
+                    <img
+                      src={`${getCameraSnapshotUrl(cam.id)}&t=${Math.floor(Date.now() / 10000)}`}
+                      alt={cam.name}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium text-gray-900">{cam.name}</h3>
                   <div className="flex items-center gap-2">
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full ${
+                        cam.type === 'hikvision'
+                          ? 'bg-purple-100 text-purple-700'
+                          : 'bg-gray-100 text-gray-500'
+                      }`}
+                    >
+                      {cam.type === 'hikvision' ? t('cameras.type_hikvision') : t('cameras.type_local')}
+                    </span>
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full ${
                         cam.status === 'indexed'
@@ -107,12 +133,21 @@ export default function CamerasPage() {
                     {t('cameras.edit')}
                   </button>
                 )}
-                <button
-                  onClick={() => setUploadTarget(cam)}
-                  className="px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded min-h-[36px]"
-                >
-                  {t('cameras.upload')}
-                </button>
+                {cam.type === 'hikvision' ? (
+                  <button
+                    onClick={() => setLiveTarget(cam)}
+                    className="px-3 py-1.5 text-xs text-green-600 hover:bg-green-50 rounded min-h-[36px] font-medium"
+                  >
+                    {t('cameras.live')}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setUploadTarget(cam)}
+                    className="px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded min-h-[36px]"
+                  >
+                    {t('cameras.upload')}
+                  </button>
+                )}
                 <button
                   onClick={() => setDeleteTarget(cam)}
                   className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded ml-auto min-h-[36px]"
@@ -147,6 +182,11 @@ export default function CamerasPage() {
         camera={uploadTarget}
         onClose={() => setUploadTarget(null)}
         onUploaded={refresh}
+      />
+      <LiveStreamModal
+        isOpen={liveTarget !== null}
+        camera={liveTarget}
+        onClose={() => setLiveTarget(null)}
       />
     </div>
   );

@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getCamera, getCameraStats, getCameraVideos, cleanCameraData, deleteVideo } from '../api/client';
+import { LiveStreamModal } from '../components/LiveStreamModal';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -45,6 +46,7 @@ export default function CameraDetailPage() {
   const [confirmModal, setConfirmModal] = useState<ConfirmModal>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showLive, setShowLive] = useState(false);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -123,21 +125,31 @@ export default function CameraDetailPage() {
           <h1 className="text-xl font-semibold text-gray-900">{camera.name}</h1>
           <p className="text-sm text-gray-500">{camera.id}</p>
         </div>
-        <span
-          className={`text-xs px-2 py-0.5 rounded-full ${
-            camera.status === 'indexed'
-              ? 'bg-green-100 text-green-700'
+        <div className="flex items-center gap-2">
+          {camera.type === 'hikvision' && (
+            <button
+              onClick={() => setShowLive(true)}
+              className="px-3 py-1.5 text-xs text-green-600 hover:bg-green-50 rounded border border-green-200 font-medium min-h-[36px]"
+            >
+              {t('cameras.live')}
+            </button>
+          )}
+          <span
+            className={`text-xs px-2 py-0.5 rounded-full ${
+              camera.status === 'indexed'
+                ? 'bg-green-100 text-green-700'
+                : camera.status === 'online'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-gray-100 text-gray-500'
+            }`}
+          >
+            {camera.status === 'indexed'
+              ? t('cameras.indexed')
               : camera.status === 'online'
-                ? 'bg-blue-100 text-blue-700'
-                : 'bg-gray-100 text-gray-500'
-          }`}
-        >
-          {camera.status === 'indexed'
-            ? t('cameras.indexed')
-            : camera.status === 'online'
-              ? t('cameras.online')
-              : t('cameras.offline')}
-        </span>
+                ? t('cameras.online')
+                : t('cameras.offline')}
+          </span>
+        </div>
       </div>
 
       {/* Error banner */}
@@ -250,6 +262,12 @@ export default function CameraDetailPage() {
           </div>
         </div>
       )}
+
+      <LiveStreamModal
+        isOpen={showLive}
+        camera={camera}
+        onClose={() => setShowLive(false)}
+      />
     </div>
   );
 }

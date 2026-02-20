@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -31,15 +32,30 @@ func Start(cfg *config.AppConfig) {
 	// Init settings
 	settingsSvc := services.NewSettingsService(storage.DB(), cfg)
 
+	// Sync CLIP model: if the saved setting differs from the default,
+	// tell the ML sidecar to load the correct model on startup.
+	if savedModel := settingsSvc.Get("clip.model"); savedModel != "" && savedModel != "mobileclip-s0" {
+		log.Printf("Saved CLIP model is %q, waiting for ML sidecar to sync...", savedModel)
+		if err := mlClient.WaitForReady(120 * time.Second); err != nil {
+			log.Printf("WARNING: ML sidecar not ready, cannot sync model: %v", err)
+		} else if _, err := mlClient.ReloadModel(savedModel); err != nil {
+			log.Printf("WARNING: failed to reload saved CLIP model %q: %v", savedModel, err)
+		} else {
+			log.Printf("ML sidecar synced to model %q", savedModel)
+		}
+	}
+
 	// Init services
 	cameraSvc := services.NewCameraService(storage.DB(), cfg)
+	streamer := services.NewStreamer(filepath.Join(cfg.App.DataDir, "streams"))
+	streamer.StartCleanup()
 
 	// Init handlers
-	processHandler := api.NewProcessHandler(cfg, mlClient, storage, settingsSvc)
+	processHandler := api.NewProcessHandler(cfg, mlClient, storage, settingsSvc, cameraSvc)
 	searchHandler := api.NewSearchHandler(cfg, mlClient, settingsSvc)
-	camerasHandler := api.NewCamerasHandler(cameraSvc)
+	camerasHandler := api.NewCamerasHandler(cameraSvc, cfg, mlClient, storage, settingsSvc, streamer)
 	videoHandler := api.NewVideoHandler(cfg)
-	settingsHandler := api.NewSettingsHandler(settingsSvc)
+	settingsHandler := api.NewSettingsHandler(settingsSvc, cfg, mlClient, storage)
 
 	// Router
 	r := chi.NewRouter()
@@ -71,6 +87,11 @@ func Start(cfg *config.AppConfig) {
 		// Settings
 		r.Get("/settings", settingsHandler.Get)
 		r.Put("/settings", settingsHandler.Update)
+		r.Get("/settings/nvr/status", settingsHandler.NVRStatus)
+
+		// CLIP model
+		r.Get("/clip/model", settingsHandler.GetClipModel)
+		r.Post("/clip/model", settingsHandler.SwitchClipModel)
 
 		// Cameras
 		r.Get("/cameras", camerasHandler.List)
@@ -83,6 +104,11 @@ func Start(cfg *config.AppConfig) {
 		r.Delete("/cameras/{id}/videos", camerasHandler.DeleteVideo)
 		r.Delete("/cameras/{id}/data", camerasHandler.CleanData)
 		r.Post("/cameras/{id}/upload", camerasHandler.Upload)
+		r.Get("/cameras/{id}/upload/status", camerasHandler.UploadStatus)
+		r.Get("/cameras/{id}/snapshot", camerasHandler.Snapshot)
+		r.Post("/cameras/{id}/stream/start", camerasHandler.StreamStart)
+		r.Get("/cameras/{id}/stream/{filename}", camerasHandler.StreamServe)
+		r.Post("/cameras/{id}/stream/stop", camerasHandler.StreamStop)
 
 		// Video playback
 		r.Get("/videos/{video_id}/play", videoHandler.Play)
