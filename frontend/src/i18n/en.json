@@ -101,12 +101,11 @@
   "detail.no_videos": "No videos uploaded yet",
   "detail.frame_count": "{{count}} frame(s)",
   "detail.danger_zone": "Danger zone",
-  "detail.delete_videos": "Delete all videos",
-  "detail.delete_videos_desc": "Remove all video files. Frames and embeddings are kept.",
-  "detail.delete_all": "Delete everything",
-  "detail.delete_all_desc": "Remove videos, frames, embeddings, and process history.",
-  "detail.confirm": "Are you sure?",
+  "detail.delete_all": "Delete all data",
+  "detail.delete_all_desc": "Remove all videos, frames, embeddings, and process history.",
+  "detail.delete_all_confirm": "This will permanently remove all videos, extracted frames, embeddings, and process history for this camera. This action cannot be undone.",
   "detail.delete_video": "Delete video",
+  "detail.delete_video_confirm": "Are you sure you want to delete \"{{filename}}\"?",
   "detail.yes_delete": "Yes, delete",
   "detail.cleaning": "Deleting..."
 }

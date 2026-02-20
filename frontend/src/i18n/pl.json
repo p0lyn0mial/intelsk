@@ -101,12 +101,11 @@
   "detail.no_videos": "Brak przesłanych nagrań",
   "detail.frame_count": "{{count}} klatek",
   "detail.danger_zone": "Strefa zagrożenia",
-  "detail.delete_videos": "Usuń wszystkie nagrania",
-  "detail.delete_videos_desc": "Usuwa pliki wideo. Klatki i embeddingi pozostają.",
-  "detail.delete_all": "Usuń wszystko",
-  "detail.delete_all_desc": "Usuwa nagrania, klatki, embeddingi i historię przetwarzania.",
-  "detail.confirm": "Czy na pewno?",
+  "detail.delete_all": "Usuń wszystkie dane",
+  "detail.delete_all_desc": "Usuwa wszystkie nagrania, klatki, embeddingi i historię przetwarzania.",
+  "detail.delete_all_confirm": "Spowoduje to trwałe usunięcie wszystkich nagrań, wyodrębnionych klatek, embeddingów i historii przetwarzania tej kamery. Tej operacji nie można cofnąć.",
   "detail.delete_video": "Usuń wideo",
+  "detail.delete_video_confirm": "Czy na pewno chcesz usunąć \"{{filename}}\"?",
   "detail.yes_delete": "Tak, usuń",
   "detail.cleaning": "Usuwanie..."
 }

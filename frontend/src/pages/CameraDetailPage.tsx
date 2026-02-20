@@ -11,6 +11,11 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+type ConfirmModal =
+  | { type: 'video'; date: string; filename: string }
+  | { type: 'all' }
+  | null;
+
 export default function CameraDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
@@ -22,22 +27,23 @@ export default function CameraDetailPage() {
     enabled: !!id,
   });
 
-  const { data: stats = [] } = useQuery({
+  const { data: rawStats } = useQuery({
     queryKey: ['cameraStats', id],
     queryFn: () => getCameraStats(id!),
     enabled: !!id,
   });
+  const stats = rawStats ?? [];
 
-  const { data: videos = [] } = useQuery({
+  const { data: rawVideos } = useQuery({
     queryKey: ['cameraVideos', id],
     queryFn: () => getCameraVideos(id!),
     enabled: !!id,
   });
+  const videos = rawVideos ?? [];
 
-  const [confirmDelete, setConfirmDelete] = useState<'videos' | 'all' | null>(null);
-  const [cleaning, setCleaning] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModal>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['camera', id] });
@@ -45,31 +51,22 @@ export default function CameraDetailPage() {
     queryClient.invalidateQueries({ queryKey: ['cameraVideos', id] });
   };
 
-  const handleClean = async (scope: 'videos' | 'all') => {
-    setCleaning(true);
+  const handleConfirm = async () => {
+    if (!confirmModal) return;
+    setBusy(true);
     setError('');
     try {
-      await cleanCameraData(id!, scope);
-      setConfirmDelete(null);
+      if (confirmModal.type === 'video') {
+        await deleteVideo(id!, confirmModal.date, confirmModal.filename);
+      } else {
+        await cleanCameraData(id!, 'all');
+      }
+      setConfirmModal(null);
       refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
-      setCleaning(false);
-    }
-  };
-
-  const handleDeleteVideo = async (date: string, filename: string) => {
-    const key = `${date}/${filename}`;
-    setDeletingVideo(key);
-    setError('');
-    try {
-      await deleteVideo(id!, date, filename);
-      refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setDeletingVideo(null);
+      setBusy(false);
     }
   };
 
@@ -163,12 +160,11 @@ export default function CameraDetailPage() {
                         <div className="flex items-center gap-3 ml-4 shrink-0">
                           <span className="text-gray-400">{formatSize(v.size)}</span>
                           <button
-                            onClick={() => handleDeleteVideo(v.date, v.filename)}
-                            disabled={deletingVideo === key}
-                            className="text-red-500 hover:text-red-700 disabled:opacity-50 min-h-[28px] px-1"
+                            onClick={() => setConfirmModal({ type: 'video', date: v.date, filename: v.filename })}
+                            className="text-red-500 hover:text-red-700 min-h-[28px] px-1"
                             title={t('detail.delete_video')}
                           >
-                            {deletingVideo === key ? '...' : '\u00d7'}
+                            {'\u00d7'}
                           </button>
                         </div>
                       </li>
@@ -186,71 +182,58 @@ export default function CameraDetailPage() {
         <div className="px-4 py-3 border-b border-red-200">
           <h3 className="font-medium text-red-600">{t('detail.danger_zone')}</h3>
         </div>
-        <div className="px-4 py-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900">{t('detail.delete_videos')}</p>
-              <p className="text-xs text-gray-500">{t('detail.delete_videos_desc')}</p>
-            </div>
-            {confirmDelete === 'videos' ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-red-600">{t('detail.confirm')}</span>
-                <button
-                  onClick={() => handleClean('videos')}
-                  disabled={cleaning}
-                  className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-700 rounded disabled:opacity-50 min-h-[36px]"
-                >
-                  {cleaning ? t('detail.cleaning') : t('detail.yes_delete')}
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(null)}
-                  className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded min-h-[36px]"
-                >
-                  {t('cameras.cancel')}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmDelete('videos')}
-                className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded border border-red-200 min-h-[36px]"
-              >
-                {t('detail.delete_videos')}
-              </button>
-            )}
-          </div>
+        <div className="px-4 py-4">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-900">{t('detail.delete_all')}</p>
               <p className="text-xs text-gray-500">{t('detail.delete_all_desc')}</p>
             </div>
-            {confirmDelete === 'all' ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-red-600">{t('detail.confirm')}</span>
-                <button
-                  onClick={() => handleClean('all')}
-                  disabled={cleaning}
-                  className="px-3 py-1.5 text-xs text-white bg-red-600 hover:bg-red-700 rounded disabled:opacity-50 min-h-[36px]"
-                >
-                  {cleaning ? t('detail.cleaning') : t('detail.yes_delete')}
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(null)}
-                  className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-100 rounded min-h-[36px]"
-                >
-                  {t('cameras.cancel')}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setConfirmDelete('all')}
-                className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded border border-red-200 min-h-[36px]"
-              >
-                {t('detail.delete_all')}
-              </button>
-            )}
+            <button
+              onClick={() => setConfirmModal({ type: 'all' })}
+              className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded border border-red-200 min-h-[36px]"
+            >
+              {t('detail.delete_all')}
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Confirmation modal */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-gray-900">
+              {confirmModal.type === 'video'
+                ? t('detail.delete_video')
+                : t('detail.delete_all')}
+            </h3>
+            <p className="text-sm text-gray-600">
+              {confirmModal.type === 'video'
+                ? t('detail.delete_video_confirm', { filename: confirmModal.filename })
+                : t('detail.delete_all_confirm')}
+            </p>
+            {error && (
+              <div className="text-sm text-red-600 bg-red-50 rounded p-3">{error}</div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => { setConfirmModal(null); setError(''); }}
+                disabled={busy}
+                className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded min-h-[36px]"
+              >
+                {t('cameras.cancel')}
+              </button>
+              <button
+                onClick={handleConfirm}
+                disabled={busy}
+                className="px-4 py-2 text-sm text-white bg-red-600 hover:bg-red-700 rounded disabled:opacity-50 min-h-[36px]"
+              >
+                {busy ? t('detail.cleaning') : t('detail.yes_delete')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

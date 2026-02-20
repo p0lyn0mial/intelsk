@@ -46,8 +46,21 @@ This starts three processes:
 
 Open http://localhost:5173 to use the web UI.
 
-Go to the Cameras page to add a local camera, then upload `.mp4` files through
-the browser. Once uploaded, click Process to extract and index frames.
+### 3. Create a camera, upload footage, and search
+
+1. Go to the **Cameras** page and click **Add Camera**.
+   - Choose type **Local**, give it an ID (e.g. `front-door`) and a name.
+   - The "Transcode H.265 to H.264" checkbox is on by default — leave it
+     checked if your camera records in HEVC, so videos play in the browser.
+2. On the camera card, click **Upload Video** and select one or more `.mp4`
+   files (or a whole directory). Uploaded files are saved under
+   `data/videos/{camera-id}/{today's date}/`.
+3. Go back to the **Main** page. Today's date is pre-filled. Select your
+   camera(s) and click **Process**. This extracts frames and indexes them
+   with CLIP (wait for the progress bar to finish).
+4. Type a natural-language query in the search box — e.g. "person carrying a
+   box" — and click **Search**. Results show matched frames with scores;
+   click the play button to jump to the moment in the source video.
 
 To start fresh (remove all data including videos, frames, and database):
 
@@ -86,7 +99,7 @@ intelsk/
       components/        # NavBar, ResultCard, VideoPlayerModal, PlayButtonOverlay
       api/               # API client + TypeScript types
       i18n/              # EN/PL translations
-      hooks/             # useVideoPlayer
+      hooks/             # useVideoPlayer, useSearchHistory
   doc/                   # design documents
   data/                  # runtime data (gitignored)
     videos/              # source MP4 files
@@ -159,6 +172,7 @@ Usage: backend serve [flags]
 | POST | `/api/cameras` | Create camera |
 | PUT | `/api/cameras/{id}` | Update camera |
 | DELETE | `/api/cameras/{id}` | Delete camera |
+| GET | `/api/cameras/{id}/stats` | Per-date video/frame counts |
 | POST | `/api/cameras/{id}/download` | Download video from URL (test cameras) |
 | POST | `/api/cameras/{id}/upload` | Upload .mp4 files (local cameras) |
 | GET | `/api/videos/{video_id}/play` | Stream video with seeking |
@@ -166,52 +180,13 @@ Usage: backend serve [flags]
 
 ## Configuration
 
-YAML files in `config/` provide startup defaults for infrastructure settings.
-Extraction, search, and CLIP parameters are **configurable at runtime** via the
-Settings page (`/settings`) or the `PUT /api/settings` API — changes are
-persisted in SQLite and take effect immediately without restarting.
-
-### config/app.yaml
-
-```yaml
-app:
-  host: 0.0.0.0
-  port: 8000
-  data_dir: data
-  log_level: info
-
-mlservice:
-  url: http://localhost:8001
-
-storage:
-  db_path: data/intelsk.db
-
-clip:
-  batch_size: 32          # runtime-configurable
-
-process:
-  history_path: data/process_history.json
-```
-
-### config/extraction.yaml
-
-```yaml
-extraction:
-  method: time
-  time_interval_sec: 5    # runtime-configurable
-  output_format: jpg
-  output_quality: 85      # runtime-configurable
-  dedup_enabled: true      # runtime-configurable
-  dedup_phash_threshold: 8 # runtime-configurable
-  storage_path: data/frames
-```
-
-### Runtime settings
-
-These settings can be changed in the UI at `/settings`:
+Most settings are stored in **SQLite** and editable at runtime through the
+Settings page (`/settings`) or `PUT /api/settings`. Changes take effect
+immediately without a restart.
 
 | Setting | Default | Range |
 |---------|---------|-------|
+| `general.system_name` | CCTV Intelligence | — |
 | `search.min_score` | 0.18 | 0.0 - 1.0 |
 | `search.default_limit` | 20 | 1 - 500 |
 | `extraction.time_interval_sec` | 5 | 1 - 3600 |
@@ -219,6 +194,17 @@ These settings can be changed in the UI at `/settings`:
 | `extraction.dedup_enabled` | true | — |
 | `extraction.dedup_phash_threshold` | 8 | 0 - 64 |
 | `clip.batch_size` | 32 | 1 - 256 |
+
+### Startup config (YAML)
+
+Two YAML files in `config/` set infrastructure paths and network addresses that
+are read once at startup. You typically don't need to change these.
+
+- **`config/app.yaml`** — listen address/port, data directory, ML sidecar URL,
+  SQLite path, process history path.
+- **`config/extraction.yaml`** — extraction method, output format, frames
+  storage path. The tunable parameters (interval, quality, dedup) are seeded
+  from here on first run but afterwards controlled via the database.
 
 ## Development Roadmap
 

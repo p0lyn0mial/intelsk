@@ -23,7 +23,7 @@ export default function MainPage() {
 
   // Filter state
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Search state
