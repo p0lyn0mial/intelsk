@@ -33,18 +33,7 @@ make setup
 
 This creates the Python venv, installs pip/npm dependencies, and fetches Go modules.
 
-### 2. Place video files
-
-Videos go in `data/videos/{camera_id}/{date}/{HH}00.mp4`:
-
-```bash
-mkdir -p data/videos/front_door/2026-02-18
-cp your-video.mp4 data/videos/front_door/2026-02-18/0800.mp4
-```
-
-The filename encodes the segment hour (e.g. `0800.mp4` = 08:00, `1400.mp4` = 14:00).
-
-### 3. Run everything
+### 2. Run everything
 
 ```bash
 make run
@@ -57,10 +46,10 @@ This starts three processes:
 
 Open http://localhost:5173 to use the web UI.
 
-You can add new videos at any time — just drop them in the right directory and
-click Process again. The system detects new files and only processes what's new.
+Go to the Cameras page to add a local camera, then upload `.mp4` files through
+the browser. Once uploaded, click Process to extract and index frames.
 
-To start fresh (remove extracted frames, database, and process history):
+To start fresh (remove all data including videos, frames, and database):
 
 ```bash
 make clean
@@ -165,7 +154,13 @@ Usage: backend serve [flags]
 | POST | `/api/search/text` | CLIP text search |
 | GET | `/api/settings` | Get all settings (with defaults) |
 | PUT | `/api/settings` | Update settings |
-| GET | `/api/cameras` | List discovered cameras |
+| GET | `/api/cameras` | List cameras |
+| GET | `/api/cameras/{id}` | Get camera by ID |
+| POST | `/api/cameras` | Create camera |
+| PUT | `/api/cameras/{id}` | Update camera |
+| DELETE | `/api/cameras/{id}` | Delete camera |
+| POST | `/api/cameras/{id}/download` | Download video from URL (test cameras) |
+| POST | `/api/cameras/{id}/upload` | Upload .mp4 files (local cameras) |
 | GET | `/api/videos/{video_id}/play` | Stream video with seeking |
 | GET | `/api/frames/*` | Serve frame images |
 

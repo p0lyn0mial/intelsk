@@ -51,25 +51,6 @@ func (s *CameraService) List() ([]models.CameraInfo, error) {
 		dbCameras[cam.ID] = cam
 	}
 
-	// 2. Scan filesystem for directories not in DB
-	videosDir := filepath.Join(s.cfg.App.DataDir, "videos")
-	entries, _ := os.ReadDir(videosDir)
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		if _, exists := dbCameras[e.Name()]; exists {
-			continue
-		}
-		dbCameras[e.Name()] = models.CameraInfo{
-			ID:     e.Name(),
-			Name:   e.Name(),
-			Type:   "local",
-			Config: map[string]any{},
-			Status: s.computeStatus(e.Name()),
-		}
-	}
-
 	cameras := make([]models.CameraInfo, 0, len(dbCameras))
 	for _, cam := range dbCameras {
 		cameras = append(cameras, cam)
@@ -86,17 +67,6 @@ func (s *CameraService) Get(id string) (*models.CameraInfo, error) {
 	).Scan(&cam.ID, &cam.Name, &cam.Type, &configJSON, &cam.CreatedAt, &cam.UpdatedAt)
 
 	if err == sql.ErrNoRows {
-		// Check filesystem
-		videosDir := filepath.Join(s.cfg.App.DataDir, "videos", id)
-		if info, err := os.Stat(videosDir); err == nil && info.IsDir() {
-			return &models.CameraInfo{
-				ID:     id,
-				Name:   id,
-				Type:   "local",
-				Config: map[string]any{},
-				Status: s.computeStatus(id),
-			}, nil
-		}
 		return nil, fmt.Errorf("camera not found: %s", id)
 	}
 	if err != nil {

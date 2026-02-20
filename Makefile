@@ -10,13 +10,13 @@ setup:
 	cd backend && go mod download
 	@echo "Setup complete."
 
-# Remove extracted frames, database, and process history.
-# Source videos in data/videos/ are preserved.
+# Remove all runtime data: videos, extracted frames, database, and process history.
 clean:
+	rm -rf data/videos
 	rm -rf data/frames
 	rm -f data/intelsk.db
 	rm -f data/process_history.json
-	@echo "Cleaned frames, database, and process history. Videos preserved."
+	@echo "Cleaned all data (videos, frames, database, process history)."
 
 # Start all services: ML sidecar, Go backend, and frontend dev server.
 # Run 'make setup' first if you haven't already.
