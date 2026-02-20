@@ -18,6 +18,7 @@ type settingDef struct {
 }
 
 var settingDefs = []settingDef{
+	{"general.system_name", "string", "CCTV Intelligence", 0, 0},
 	{"search.min_score", "float", "0.18", 0.0, 1.0},
 	{"search.default_limit", "int", "20", 1, 500},
 	{"extraction.time_interval_sec", "int", "5", 1, 3600},
@@ -46,6 +47,7 @@ func NewSettingsService(db *sql.DB, cfg *config.AppConfig) *SettingsService {
 	}
 
 	// Build defaults from config values
+	s.cache["general.system_name"] = "CCTV Intelligence"
 	s.cache["search.min_score"] = "0.18"
 	s.cache["search.default_limit"] = "20"
 	s.cache["extraction.time_interval_sec"] = strconv.Itoa(cfg.Extraction.TimeIntervalSec)
@@ -166,6 +168,12 @@ func (s *SettingsService) validate(def settingDef, value any) (string, error) {
 			return "", fmt.Errorf("expected bool: %w", err)
 		}
 		return strconv.FormatBool(v), nil
+	case "string":
+		s, ok := value.(string)
+		if !ok {
+			return "", fmt.Errorf("expected string")
+		}
+		return s, nil
 	default:
 		return "", fmt.Errorf("unknown type %s", def.Type)
 	}
@@ -188,6 +196,8 @@ func (s *SettingsService) All() map[string]any {
 		case "bool":
 			v, _ := strconv.ParseBool(raw)
 			result[key] = v
+		case "string":
+			result[key] = raw
 		default:
 			result[key] = raw
 		}
@@ -209,6 +219,8 @@ func (s *SettingsService) Defaults() map[string]any {
 		case "bool":
 			v, _ := strconv.ParseBool(def.Default)
 			result[def.Key] = v
+		case "string":
+			result[def.Key] = def.Default
 		default:
 			result[def.Key] = def.Default
 		}

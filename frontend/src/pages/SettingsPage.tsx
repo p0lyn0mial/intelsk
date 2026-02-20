@@ -8,11 +8,15 @@ interface FieldDef {
   key: string;
   label: string;
   hint: string;
-  type: 'float' | 'int' | 'bool';
+  type: 'float' | 'int' | 'bool' | 'string';
   step?: number;
   min?: number;
   max?: number;
 }
+
+const generalFields: FieldDef[] = [
+  { key: 'general.system_name', label: 'settings.system_name', hint: 'settings.system_name_hint', type: 'string' },
+];
 
 const searchFields: FieldDef[] = [
   { key: 'search.min_score', label: 'settings.min_score', hint: 'settings.min_score_hint', type: 'float', step: 0.01, min: 0, max: 1 },
@@ -60,7 +64,7 @@ export default function SettingsPage() {
     },
   });
 
-  const handleChange = (key: string, value: number | boolean) => {
+  const handleChange = (key: string, value: number | boolean | string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -99,6 +103,34 @@ export default function SettingsPage() {
     const value = form[field.key];
     const defaultLabel = t('settings.default', { value: formatDefault(field.key, field.type) });
 
+    if (field.type === 'string') {
+      return (
+        <label key={field.key} className="block py-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-sm font-medium text-gray-700">{t(field.label)}</span>
+            <span className="text-xs text-gray-400">
+              {t(field.hint)}
+              {!isDefault(field.key) && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); handleReset(field.key); }}
+                  className="ml-2 text-blue-500 hover:text-blue-700"
+                >
+                  {defaultLabel}
+                </button>
+              )}
+            </span>
+          </div>
+          <input
+            type="text"
+            value={(value as string) ?? ''}
+            placeholder={String(defaults[field.key] ?? '')}
+            onChange={(e) => handleChange(field.key, e.target.value)}
+            className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+          />
+        </label>
+      );
+    }
     if (field.type === 'bool') {
       return (
         <label key={field.key} className="flex items-center justify-between py-3">
@@ -194,6 +226,7 @@ export default function SettingsPage() {
       )}
 
       <div className="space-y-5">
+        {renderCard(t('settings.general_title'), generalFields)}
         {renderCard(t('settings.search_title'), searchFields)}
         {renderCard(t('settings.extraction_title'), extractionFields)}
         {renderCard(t('settings.clip_title'), clipFields)}

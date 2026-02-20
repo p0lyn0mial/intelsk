@@ -74,7 +74,7 @@ export interface ProcessHistoryEntry {
   indexed_at: string;
 }
 
-export type SettingsMap = Record<string, number | boolean>;
+export type SettingsMap = Record<string, number | boolean | string>;
 
 export interface SettingsResponse {
   settings: SettingsMap;

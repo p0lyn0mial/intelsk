@@ -1,11 +1,19 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
+import { getSettings } from '../api/client';
 
 export default function NavBar() {
   const { t, i18n } = useTranslation();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const { data: settingsData } = useQuery({
+    queryKey: ['settings'],
+    queryFn: getSettings,
+  });
+  const systemName = (settingsData?.settings['general.system_name'] as string) || t('nav.title');
 
   const toggleLang = () => {
     const next = i18n.language === 'en' ? 'pl' : 'en';
@@ -25,7 +33,7 @@ export default function NavBar() {
         <div className="flex items-center justify-between h-14">
           <div className="flex items-center gap-6">
             <Link to="/" className="text-lg font-bold tracking-tight">
-              {t('nav.title')}
+              {systemName}
             </Link>
             <div className="hidden sm:flex gap-4">
               {navLinks.slice(1).map((link) => (
