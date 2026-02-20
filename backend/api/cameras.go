@@ -80,25 +80,53 @@ func (h *CamerasHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
-func (h *CamerasHandler) Download(w http.ResponseWriter, r *http.Request) {
+func (h *CamerasHandler) Stats(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	var req models.DownloadRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
-		return
-	}
-
-	if req.URL == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url is required"})
-		return
-	}
-
-	path, err := h.svc.Download(id, req.URL)
+	stats, err := h.svc.Stats(id)
 	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (h *CamerasHandler) ListVideos(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	videos, err := h.svc.ListVideos(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, videos)
+}
+
+func (h *CamerasHandler) CleanData(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	scope := r.URL.Query().Get("scope")
+	if scope != "videos" && scope != "all" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "scope must be 'videos' or 'all'"})
+		return
+	}
+	if err := h.svc.CleanData(id, scope); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"status": "downloaded", "path": path})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "cleaned"})
+}
+
+func (h *CamerasHandler) DeleteVideo(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	date := r.URL.Query().Get("date")
+	filename := r.URL.Query().Get("filename")
+	if date == "" || filename == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "date and filename are required"})
+		return
+	}
+	if err := h.svc.DeleteVideo(id, date, filename); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
 func (h *CamerasHandler) Upload(w http.ResponseWriter, r *http.Request) {

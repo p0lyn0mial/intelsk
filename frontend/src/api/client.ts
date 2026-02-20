@@ -1,8 +1,9 @@
 import type {
   CameraInfo,
+  CameraDateStats,
   CreateCameraRequest,
   UpdateCameraRequest,
-  DownloadRequest,
+  VideoFile,
   ProcessRequest,
   ProcessResponse,
   ProcessHistoryEntry,
@@ -36,6 +37,10 @@ export async function getCamera(id: string): Promise<CameraInfo> {
   return fetchJSON(`${BASE}/cameras/${id}`);
 }
 
+export async function getCameraStats(id: string): Promise<CameraDateStats[]> {
+  return fetchJSON(`${BASE}/cameras/${id}/stats`);
+}
+
 export async function createCamera(req: CreateCameraRequest): Promise<CameraInfo> {
   return fetchJSON(`${BASE}/cameras`, {
     method: 'POST',
@@ -58,28 +63,49 @@ export async function deleteCamera(id: string, deleteData: boolean): Promise<voi
   });
 }
 
-export async function downloadVideo(id: string, req: DownloadRequest): Promise<{ status: string; path: string }> {
-  return fetchJSON(`${BASE}/cameras/${id}/download`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+export async function getCameraVideos(id: string): Promise<VideoFile[]> {
+  return fetchJSON(`${BASE}/cameras/${id}/videos`);
+}
+
+export async function deleteVideo(id: string, date: string, filename: string): Promise<void> {
+  await fetchJSON(`${BASE}/cameras/${id}/videos?date=${encodeURIComponent(date)}&filename=${encodeURIComponent(filename)}`, {
+    method: 'DELETE',
   });
 }
 
-export async function uploadVideos(id: string, files: FileList | File[]): Promise<{ status: string; paths: string[] }> {
-  const formData = new FormData();
-  for (let i = 0; i < files.length; i++) {
-    formData.append('files', files[i]);
-  }
-  const res = await fetch(`${BASE}/cameras/${id}/upload`, {
-    method: 'POST',
-    body: formData,
+export async function cleanCameraData(id: string, scope: 'videos' | 'all'): Promise<void> {
+  await fetchJSON(`${BASE}/cameras/${id}/data?scope=${scope}`, {
+    method: 'DELETE',
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
-  }
-  return res.json();
+}
+
+export function uploadVideos(
+  id: string,
+  files: FileList | File[],
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<{ status: string; paths: string[] }> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+    for (let i = 0; i < files.length; i++) {
+      formData.append('files', files[i]);
+    }
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}/cameras/${id}/upload`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded, e.total);
+      };
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText));
+      } else {
+        reject(new Error(`${xhr.status}: ${xhr.responseText}`));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Upload failed'));
+    xhr.send(formData);
+  });
 }
 
 export async function startProcess(req: ProcessRequest): Promise<ProcessResponse> {

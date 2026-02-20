@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -88,8 +90,8 @@ func (s *CameraService) Create(req models.CreateCameraRequest) (*models.CameraIn
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	if req.Type != "local" && req.Type != "test" {
-		return nil, fmt.Errorf("type must be 'local' or 'test'")
+	if req.Type != "local" {
+		return nil, fmt.Errorf("type must be 'local'")
 	}
 
 	// Check for duplicates (DB or filesystem)
@@ -100,6 +102,10 @@ func (s *CameraService) Create(req models.CreateCameraRequest) (*models.CameraIn
 	config := req.Config
 	if config == nil {
 		config = map[string]any{}
+	}
+	// Default transcode=true
+	if _, ok := config["transcode"]; !ok {
+		config["transcode"] = true
 	}
 	configJSON, err := json.Marshal(config)
 	if err != nil {
@@ -178,60 +184,12 @@ func (s *CameraService) Delete(id string, deleteData bool) error {
 	return nil
 }
 
-// Download fetches a video from a URL and saves it to the camera's directory.
-// Only works for cameras with type "test".
-func (s *CameraService) Download(id string, url string) (string, error) {
-	cam, err := s.Get(id)
-	if err != nil {
-		return "", err
-	}
-	if cam.Type != "test" {
-		return "", fmt.Errorf("download is only available for test cameras")
-	}
-
-	// Create dated subdirectory
-	today := time.Now().Format("2006-01-02")
-	dir := filepath.Join(s.cfg.App.DataDir, "videos", id, today)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("creating directory: %w", err)
-	}
-
-	filename := fmt.Sprintf("download_%d.mp4", time.Now().Unix())
-	destPath := filepath.Join(dir, filename)
-
-	resp, err := http.Get(url)
-	if err != nil {
-		return "", fmt.Errorf("fetching URL: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("URL returned status %d", resp.StatusCode)
-	}
-
-	out, err := os.Create(destPath)
-	if err != nil {
-		return "", fmt.Errorf("creating file: %w", err)
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, resp.Body); err != nil {
-		os.Remove(destPath)
-		return "", fmt.Errorf("downloading video: %w", err)
-	}
-
-	return destPath, nil
-}
-
 // Upload saves an uploaded file to the camera's video directory.
 // Only works for cameras with type "local".
 func (s *CameraService) Upload(id string, file io.Reader, filename string) (string, error) {
 	cam, err := s.Get(id)
 	if err != nil {
 		return "", err
-	}
-	if cam.Type != "local" {
-		return "", fmt.Errorf("upload is only available for local cameras")
 	}
 
 	// Create dated subdirectory
@@ -271,14 +229,249 @@ func (s *CameraService) Upload(id string, file io.Reader, filename string) (stri
 	if err != nil {
 		return "", fmt.Errorf("creating file: %w", err)
 	}
-	defer out.Close()
 
 	if _, err := io.Copy(out, file); err != nil {
+		out.Close()
 		os.Remove(destPath)
 		return "", fmt.Errorf("saving file: %w", err)
 	}
+	out.Close()
+
+	// Transcode HEVC to H.264 if enabled
+	if shouldTranscode(cam.Config) {
+		if err := transcodeIfNeeded(destPath); err != nil {
+			log.Printf("Transcode warning for %s: %v", destPath, err)
+		}
+	}
 
 	return destPath, nil
+}
+
+// probeVideoCodec runs ffprobe and returns the codec name of the first video stream.
+func probeVideoCodec(filePath string) (string, error) {
+	out, err := exec.Command(
+		"ffprobe", "-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=codec_name",
+		"-of", "csv=p=0",
+		filePath,
+	).Output()
+	if err != nil {
+		return "", fmt.Errorf("ffprobe: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// transcodeIfNeeded checks the video codec and transcodes HEVC to H.264 in-place.
+func transcodeIfNeeded(filePath string) error {
+	codec, err := probeVideoCodec(filePath)
+	if err != nil {
+		return err
+	}
+	if codec != "hevc" {
+		return nil
+	}
+
+	log.Printf("Transcoding HEVC video: %s", filePath)
+	tmpPath := filePath + ".transcoding.mp4"
+	cmd := exec.Command(
+		"ffmpeg", "-i", filePath,
+		"-c:v", "libx264", "-crf", "23",
+		"-c:a", "aac",
+		"-y", tmpPath,
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("ffmpeg transcode: %w: %s", err, string(out))
+	}
+
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("replacing original with transcoded file: %w", err)
+	}
+	log.Printf("Transcode complete: %s", filePath)
+	return nil
+}
+
+// shouldTranscode returns whether transcoding is enabled for this camera config.
+func shouldTranscode(config map[string]any) bool {
+	v, ok := config["transcode"]
+	if !ok {
+		return true // default enabled
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return true
+	}
+	return b
+}
+
+// Stats returns per-date video and frame counts for a camera.
+func (s *CameraService) Stats(id string) ([]models.CameraDateStats, error) {
+	dateMap := make(map[string]*models.CameraDateStats)
+
+	// Count videos per date
+	videosDir := filepath.Join(s.cfg.App.DataDir, "videos", id)
+	if entries, err := os.ReadDir(videosDir); err == nil {
+		for _, de := range entries {
+			if !de.IsDir() {
+				continue
+			}
+			date := de.Name()
+			dateDir := filepath.Join(videosDir, date)
+			files, err := os.ReadDir(dateDir)
+			if err != nil {
+				continue
+			}
+			videoCount := 0
+			for _, f := range files {
+				if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ".mp4") {
+					videoCount++
+				}
+			}
+			if videoCount > 0 {
+				if _, ok := dateMap[date]; !ok {
+					dateMap[date] = &models.CameraDateStats{Date: date}
+				}
+				dateMap[date].VideoCount = videoCount
+			}
+		}
+	}
+
+	// Count frames per date from manifest.json
+	framesDir := filepath.Join(s.cfg.Extraction.StoragePath, id)
+	if entries, err := os.ReadDir(framesDir); err == nil {
+		for _, de := range entries {
+			if !de.IsDir() {
+				continue
+			}
+			date := de.Name()
+			manifestPath := filepath.Join(framesDir, date, "manifest.json")
+			data, err := os.ReadFile(manifestPath)
+			if err != nil {
+				continue
+			}
+			var manifest []any
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				continue
+			}
+			if _, ok := dateMap[date]; !ok {
+				dateMap[date] = &models.CameraDateStats{Date: date}
+			}
+			dateMap[date].FrameCount = len(manifest)
+		}
+	}
+
+	stats := make([]models.CameraDateStats, 0, len(dateMap))
+	for _, s := range dateMap {
+		stats = append(stats, *s)
+	}
+	sort.Slice(stats, func(i, j int) bool {
+		return stats[i].Date > stats[j].Date // newest first
+	})
+	return stats, nil
+}
+
+// ListVideos returns all .mp4 files for a camera, grouped by date, sorted date-desc then filename-asc.
+func (s *CameraService) ListVideos(id string) ([]models.VideoFile, error) {
+	if _, err := s.Get(id); err != nil {
+		return nil, err
+	}
+
+	var files []models.VideoFile
+	videosDir := filepath.Join(s.cfg.App.DataDir, "videos", id)
+	dateEntries, err := os.ReadDir(videosDir)
+	if err != nil {
+		return files, nil // no videos dir is fine
+	}
+
+	for _, de := range dateEntries {
+		if !de.IsDir() {
+			continue
+		}
+		date := de.Name()
+		dateDir := filepath.Join(videosDir, date)
+		videoEntries, err := os.ReadDir(dateDir)
+		if err != nil {
+			continue
+		}
+		for _, ve := range videoEntries {
+			if ve.IsDir() || !strings.HasSuffix(strings.ToLower(ve.Name()), ".mp4") {
+				continue
+			}
+			info, err := ve.Info()
+			if err != nil {
+				continue
+			}
+			files = append(files, models.VideoFile{
+				Date:     date,
+				Filename: ve.Name(),
+				Size:     info.Size(),
+			})
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].Date != files[j].Date {
+			return files[i].Date > files[j].Date // newest date first
+		}
+		return files[i].Filename < files[j].Filename
+	})
+	return files, nil
+}
+
+// CleanData removes data for a camera. scope "videos" deletes only videos;
+// scope "all" also removes frames, embeddings, and process history.
+func (s *CameraService) CleanData(id string, scope string) error {
+	if _, err := s.Get(id); err != nil {
+		return err
+	}
+
+	// Always delete videos
+	videosDir := filepath.Join(s.cfg.App.DataDir, "videos", id)
+	os.RemoveAll(videosDir)
+	os.MkdirAll(videosDir, 0o755)
+
+	if scope == "all" {
+		framesDir := filepath.Join(s.cfg.Extraction.StoragePath, id)
+		os.RemoveAll(framesDir)
+		s.db.Exec("DELETE FROM clip_embeddings WHERE camera_id = ?", id)
+		s.db.Exec("DELETE FROM face_embeddings WHERE camera_id = ?", id)
+		s.removeFromProcessHistory(id)
+	}
+
+	return nil
+}
+
+// DeleteVideo removes a single video file for a camera.
+func (s *CameraService) DeleteVideo(id, date, filename string) error {
+	if _, err := s.Get(id); err != nil {
+		return err
+	}
+
+	// Sanitize inputs to prevent path traversal
+	safeDate := filepath.Base(date)
+	safeFile := filepath.Base(filename)
+	if safeDate != date || safeFile != filename || safeDate == ".." || safeFile == ".." {
+		return fmt.Errorf("invalid date or filename")
+	}
+
+	filePath := filepath.Join(s.cfg.App.DataDir, "videos", id, safeDate, safeFile)
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return fmt.Errorf("video not found")
+	}
+	if err := os.Remove(filePath); err != nil {
+		return fmt.Errorf("removing video: %w", err)
+	}
+
+	// Clean up empty date directory
+	dateDir := filepath.Join(s.cfg.App.DataDir, "videos", id, safeDate)
+	entries, err := os.ReadDir(dateDir)
+	if err == nil && len(entries) == 0 {
+		os.Remove(dateDir)
+	}
+
+	return nil
 }
 
 func (s *CameraService) computeStatus(cameraID string) string {

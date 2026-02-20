@@ -28,6 +28,7 @@ export default function NavBar() {
   const navLinks = [
     { to: '/', label: t('nav.title') },
     { to: '/cameras', label: t('nav.cameras') },
+    { to: '/process', label: t('nav.process') },
     { to: '/settings', label: t('nav.settings') },
   ];
 
@@ -40,19 +41,23 @@ export default function NavBar() {
               {systemName}
             </Link>
             <div className="hidden sm:flex gap-4">
-              {navLinks.slice(1).map((link) => (
-                <Link
-                  key={link.to}
-                  to={link.to}
-                  className={`px-3 py-1.5 rounded text-sm ${
-                    location.pathname === link.to
-                      ? 'bg-gray-700'
-                      : 'hover:bg-gray-800'
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              ))}
+              {navLinks.slice(1).map((link) => {
+                const isActive =
+                  link.to === '/'
+                    ? location.pathname === '/'
+                    : location.pathname.startsWith(link.to);
+                return (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    className={`px-3 py-1.5 rounded text-sm ${
+                      isActive ? 'bg-gray-700' : 'hover:bg-gray-800'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
             </div>
           </div>
 
@@ -85,20 +90,24 @@ export default function NavBar() {
       {/* Mobile menu */}
       {menuOpen && (
         <div className="sm:hidden border-t border-gray-700 px-4 pb-3 pt-2 space-y-1">
-          {navLinks.map((link) => (
-            <Link
-              key={link.to}
-              to={link.to}
-              onClick={() => setMenuOpen(false)}
-              className={`block px-3 py-2 rounded text-sm ${
-                location.pathname === link.to
-                  ? 'bg-gray-700'
-                  : 'hover:bg-gray-800'
-              }`}
-            >
-              {link.label}
-            </Link>
-          ))}
+          {navLinks.map((link) => {
+            const isActive =
+              link.to === '/'
+                ? location.pathname === '/'
+                : location.pathname.startsWith(link.to);
+            return (
+              <Link
+                key={link.to}
+                to={link.to}
+                onClick={() => setMenuOpen(false)}
+                className={`block px-3 py-2 rounded text-sm ${
+                  isActive ? 'bg-gray-700' : 'hover:bg-gray-800'
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </div>
       )}
     </nav>

@@ -78,7 +78,10 @@ func Start(cfg *config.AppConfig) {
 		r.Post("/cameras", camerasHandler.Create)
 		r.Put("/cameras/{id}", camerasHandler.Update)
 		r.Delete("/cameras/{id}", camerasHandler.Delete)
-		r.Post("/cameras/{id}/download", camerasHandler.Download)
+		r.Get("/cameras/{id}/stats", camerasHandler.Stats)
+		r.Get("/cameras/{id}/videos", camerasHandler.ListVideos)
+		r.Delete("/cameras/{id}/videos", camerasHandler.DeleteVideo)
+		r.Delete("/cameras/{id}/data", camerasHandler.CleanData)
 		r.Post("/cameras/{id}/upload", camerasHandler.Upload)
 
 		// Video playback

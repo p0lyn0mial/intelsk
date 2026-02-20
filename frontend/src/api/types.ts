@@ -20,10 +20,6 @@ export interface UpdateCameraRequest {
   config?: Record<string, unknown>;
 }
 
-export interface DownloadRequest {
-  url: string;
-}
-
 export interface ProcessRequest {
   camera_ids: string[];
   start_date: string;
@@ -65,6 +61,18 @@ export interface SearchResponse {
   results: SearchResult[];
   query: string;
   total: number;
+}
+
+export interface VideoFile {
+  date: string;
+  filename: string;
+  size: number;
+}
+
+export interface CameraDateStats {
+  date: string;
+  video_count: number;
+  frame_count: number;
 }
 
 export interface ProcessHistoryEntry {

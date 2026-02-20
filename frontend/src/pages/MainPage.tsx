@@ -3,14 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
   getCameras,
-  startProcess,
-  streamProcessStatus,
   searchText,
 } from '../api/client';
-import type { ProgressEvent, SearchResult } from '../api/types';
+import type { SearchResult } from '../api/types';
 import ResultCard from '../components/ResultCard';
 import VideoPlayerModal from '../components/VideoPlayerModal';
 import useVideoPlayer from '../hooks/useVideoPlayer';
+import useSearchHistory from '../hooks/useSearchHistory';
 
 export default function MainPage() {
   const { t } = useTranslation();
@@ -22,22 +21,18 @@ export default function MainPage() {
     queryFn: getCameras,
   });
 
-  // Form state
+  // Filter state
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-
-  // Processing state
-  const [processing, setProcessing] = useState(false);
-  const [processReady, setProcessReady] = useState(false);
-  const [events, setEvents] = useState<ProgressEvent[]>([]);
-  const [progressPct, setProgressPct] = useState(0);
+  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Search state
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showHistory, setShowHistory] = useState(false);
+  const { history, addQuery, clearHistory } = useSearchHistory();
 
   // Auto-select all cameras on load
   useEffect(() => {
@@ -52,59 +47,22 @@ export default function MainPage() {
     );
   };
 
-  const handleProcess = async () => {
-    if (selectedCameras.length === 0 || !startDate) return;
-
-    setProcessing(true);
-    setProcessReady(false);
-    setEvents([]);
-    setProgressPct(0);
-
-    try {
-      const res = await startProcess({
-        camera_ids: selectedCameras,
-        start_date: startDate,
-        end_date: endDate || startDate,
-      });
-
-      if (res.status === 'already_cached') {
-        setProcessing(false);
-        setProcessReady(true);
-        return;
-      }
-
-      streamProcessStatus(
-        res.job_id,
-        (event) => {
-          setEvents((prev) => [...prev, event]);
-          if (event.frames_total && event.frames_total > 0) {
-            setProgressPct(
-              Math.round(((event.frames_done || 0) / event.frames_total) * 100),
-            );
-          }
-        },
-        () => {
-          setProcessing(false);
-          setProcessReady(true);
-        },
-      );
-    } catch {
-      setProcessing(false);
-    }
-  };
-
   const handleSearch = async () => {
     if (!query.trim()) return;
 
     setSearching(true);
     try {
+      const trimmed = query.trim();
       const res = await searchText({
-        query: query.trim(),
+        query: trimmed,
         camera_ids: selectedCameras.length > 0 ? selectedCameras : undefined,
+        start_time: startDate || undefined,
+        end_time: endDate || undefined,
         limit: 40,
       });
       setResults(res.results);
       setSearchQuery(res.query);
+      addQuery(trimmed);
     } catch {
       setResults([]);
     } finally {
@@ -112,20 +70,18 @@ export default function MainPage() {
     }
   };
 
-  const lastEvent = events[events.length - 1];
-
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
-      {/* Step 1: Process */}
+      {/* Search */}
       <section className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900">
-          {t('process.title')}
+          {t('search.title')}
         </h2>
 
         {/* Camera selector */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            {t('process.cameras')}
+            {t('search.cameras')}
           </label>
           <div className="flex flex-wrap gap-3">
             {cameras.map((cam) => (
@@ -150,11 +106,11 @@ export default function MainPage() {
           </div>
         </div>
 
-        {/* Date picker */}
+        {/* Date range */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('process.start_date')}
+              {t('search.start_date')}
             </label>
             <input
               type="date"
@@ -165,7 +121,7 @@ export default function MainPage() {
           </div>
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('process.end_date')}
+              {t('search.end_date')}
             </label>
             <input
               type="date"
@@ -176,55 +132,43 @@ export default function MainPage() {
           </div>
         </div>
 
-        {/* Process button */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={handleProcess}
-            disabled={processing || selectedCameras.length === 0 || !startDate}
-            className="px-5 py-2.5 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
-          >
-            {processing ? t('process.processing') : t('process.button')}
-          </button>
-          {processReady && (
-            <span className="text-sm text-green-600 font-medium">
-              {t('process.ready')}
-            </span>
-          )}
-        </div>
-
-        {/* Progress bar */}
-        {processing && (
-          <div className="space-y-2">
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
-              <div
-                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            {lastEvent && (
-              <p className="text-sm text-gray-600">
-                {lastEvent.message}
-              </p>
+        {/* Search input */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              onFocus={() => setShowHistory(true)}
+              onBlur={() => setShowHistory(false)}
+              placeholder={t('search.placeholder')}
+              className="w-full px-4 py-2.5 border rounded-md text-sm min-h-[44px]"
+            />
+            {showHistory && history.length > 0 && (
+              <div className="absolute z-10 left-0 right-0 mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                {history.map((q, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setQuery(q); setShowHistory(false); }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 truncate"
+                  >
+                    {q}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { clearHistory(); setShowHistory(false); }}
+                  className="w-full text-left px-4 py-2 text-xs text-red-500 hover:bg-red-50 border-t"
+                >
+                  {t('search.clear_history')}
+                </button>
+              </div>
             )}
           </div>
-        )}
-      </section>
-
-      {/* Step 2: Search */}
-      <section className="bg-white rounded-lg shadow p-4 sm:p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-gray-900">
-          {t('search.title')}
-        </h2>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-            placeholder={t('search.placeholder')}
-            className="flex-1 px-4 py-2.5 border rounded-md text-sm min-h-[44px]"
-          />
           <button
             onClick={handleSearch}
             disabled={searching || !query.trim()}

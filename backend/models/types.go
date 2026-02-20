@@ -91,8 +91,16 @@ type UpdateCameraRequest struct {
 	Config map[string]any `json:"config,omitempty"`
 }
 
-type DownloadRequest struct {
-	URL string `json:"url"`
+type VideoFile struct {
+	Date     string `json:"date"`
+	Filename string `json:"filename"`
+	Size     int64  `json:"size"`
+}
+
+type CameraDateStats struct {
+	Date       string `json:"date"`
+	VideoCount int    `json:"video_count"`
+	FrameCount int    `json:"frame_count"`
 }
 
 type SettingsResponse struct {

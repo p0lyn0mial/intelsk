@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CameraInfo, CreateCameraRequest, UpdateCameraRequest } from '../api/types';
-import { createCamera, updateCamera, deleteCamera, downloadVideo, uploadVideos } from '../api/client';
+import { createCamera, updateCamera, deleteCamera, uploadVideos } from '../api/client';
 
 // --- Shared modal backdrop ---
 
@@ -47,8 +47,7 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
   const { t } = useTranslation();
   const [id, setId] = useState('');
   const [name, setName] = useState('');
-  const [type, setType] = useState<'local' | 'test'>('local');
-  const [url, setUrl] = useState('');
+  const [transcode, setTranscode] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -56,8 +55,7 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
     if (isOpen) {
       setId('');
       setName('');
-      setType('local');
-      setUrl('');
+      setTranscode(true);
       setError('');
     }
   }, [isOpen]);
@@ -69,10 +67,7 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
     setLoading(true);
     setError('');
     try {
-      const req: CreateCameraRequest = { id, name, type };
-      if (type === 'test' && url) {
-        req.config = { url };
-      }
+      const req: CreateCameraRequest = { id, name, type: 'local', config: { transcode } };
       await createCamera(req);
       onCreated();
       onClose();
@@ -122,34 +117,15 @@ export function AddCameraModal({ isOpen, onClose, onCreated }: AddCameraModalPro
               placeholder="Front Door Camera"
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('cameras.field_type')}
-            </label>
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value as 'local' | 'test')}
-              className="w-full border rounded px-3 py-2 text-sm"
-            >
-              <option value="local">{t('cameras.type_local')}</option>
-              <option value="test">{t('cameras.type_test')}</option>
-            </select>
-          </div>
-          {type === 'test' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('cameras.field_url')}
-              </label>
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="https://example.com/video.mp4"
-              />
-              <p className="text-xs text-gray-500 mt-1">{t('cameras.field_url_hint')}</p>
-            </div>
-          )}
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={transcode}
+              onChange={(e) => setTranscode(e.target.checked)}
+              className="rounded"
+            />
+            {t('cameras.transcode')}
+          </label>
         </div>
         <div className="px-6 py-4 border-t flex justify-end gap-3">
           <button
@@ -184,14 +160,14 @@ interface EditCameraModalProps {
 export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCameraModalProps) {
   const { t } = useTranslation();
   const [name, setName] = useState('');
-  const [url, setUrl] = useState('');
+  const [transcode, setTranscode] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
     if (isOpen && camera) {
       setName(camera.name);
-      setUrl((camera.config?.url as string) || '');
+      setTranscode(camera.config?.transcode !== false);
       setError('');
     }
   }, [isOpen, camera]);
@@ -203,10 +179,7 @@ export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCame
     setLoading(true);
     setError('');
     try {
-      const req: UpdateCameraRequest = { name };
-      if (camera.type === 'test') {
-        req.config = { url };
-      }
+      const req: UpdateCameraRequest = { name, config: { transcode } };
       await updateCamera(camera.id, req);
       onUpdated();
       onClose();
@@ -240,17 +213,6 @@ export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCame
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('cameras.field_type')}
-            </label>
-            <input
-              type="text"
-              value={t(`cameras.type_${camera.type}`)}
-              disabled
-              className="w-full border rounded px-3 py-2 text-sm bg-gray-50 text-gray-500"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('cameras.field_name')}
             </label>
             <input
@@ -261,20 +223,15 @@ export function EditCameraModal({ isOpen, camera, onClose, onUpdated }: EditCame
               className="w-full border rounded px-3 py-2 text-sm"
             />
           </div>
-          {camera.type === 'test' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t('cameras.field_url')}
-              </label>
-              <input
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="https://example.com/video.mp4"
-              />
-            </div>
-          )}
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              checked={transcode}
+              onChange={(e) => setTranscode(e.target.checked)}
+              className="rounded"
+            />
+            {t('cameras.transcode')}
+          </label>
         </div>
         <div className="px-6 py-4 border-t flex justify-end gap-3">
           <button
@@ -378,99 +335,6 @@ export function DeleteCameraDialog({ isOpen, camera, onClose, onDeleted }: Delet
   );
 }
 
-// --- Download Video Modal ---
-
-interface DownloadVideoModalProps {
-  isOpen: boolean;
-  camera: CameraInfo | null;
-  onClose: () => void;
-  onDownloaded: () => void;
-}
-
-export function DownloadVideoModal({ isOpen, camera, onClose, onDownloaded }: DownloadVideoModalProps) {
-  const { t } = useTranslation();
-  const [url, setUrl] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-
-  useEffect(() => {
-    if (isOpen && camera) {
-      setUrl((camera.config?.url as string) || '');
-      setError('');
-      setSuccess(false);
-    }
-  }, [isOpen, camera]);
-
-  if (!isOpen || !camera) return null;
-
-  const handleDownload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError('');
-    setSuccess(false);
-    try {
-      await downloadVideo(camera.id, { url });
-      setSuccess(true);
-      onDownloaded();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <ModalBackdrop onClose={onClose}>
-      <form onSubmit={handleDownload}>
-        <div className="px-6 py-4 border-b">
-          <h2 className="text-lg font-semibold">{t('cameras.download_title')}</h2>
-        </div>
-        <div className="px-6 py-4 space-y-4">
-          {error && (
-            <div className="text-sm text-red-600 bg-red-50 rounded p-2">{error}</div>
-          )}
-          {success && (
-            <div className="text-sm text-green-600 bg-green-50 rounded p-2">
-              {t('cameras.download_success')}
-            </div>
-          )}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t('cameras.field_url')}
-            </label>
-            <input
-              type="url"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              required
-              className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="https://example.com/video.mp4"
-            />
-            <p className="text-xs text-gray-500 mt-1">{t('cameras.field_url_hint')}</p>
-          </div>
-        </div>
-        <div className="px-6 py-4 border-t flex justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded min-h-[44px]"
-          >
-            {t('cameras.cancel')}
-          </button>
-          <button
-            type="submit"
-            disabled={loading}
-            className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 min-h-[44px]"
-          >
-            {loading ? t('cameras.downloading') : t('cameras.download')}
-          </button>
-        </div>
-      </form>
-    </ModalBackdrop>
-  );
-}
-
 // --- Upload Video Modal ---
 
 interface UploadVideoModalProps {
@@ -485,6 +349,7 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
   const [mode, setMode] = useState<'files' | 'directory'>('files');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -492,6 +357,7 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
     if (isOpen) {
       setMode('files');
       setSelectedFiles([]);
+      setUploadProgress(0);
       setError('');
       setSuccess('');
     }
@@ -513,10 +379,13 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
   const handleUpload = async () => {
     if (selectedFiles.length === 0) return;
     setLoading(true);
+    setUploadProgress(0);
     setError('');
     setSuccess('');
     try {
-      const result = await uploadVideos(camera.id, selectedFiles);
+      const result = await uploadVideos(camera.id, selectedFiles, (loaded, total) => {
+        setUploadProgress(Math.round((loaded / total) * 100));
+      });
       setSuccess(t('cameras.upload_success', { count: result.paths.length }));
       setSelectedFiles([]);
       onUploaded();
@@ -547,8 +416,9 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
             <div className="flex gap-2">
               <button
                 type="button"
+                disabled={loading}
                 onClick={() => { setMode('files'); setSelectedFiles([]); }}
-                className={`px-3 py-1.5 text-sm rounded ${
+                className={`px-3 py-1.5 text-sm rounded disabled:opacity-50 ${
                   mode === 'files'
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -558,8 +428,9 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
               </button>
               <button
                 type="button"
+                disabled={loading}
                 onClick={() => { setMode('directory'); setSelectedFiles([]); }}
-                className={`px-3 py-1.5 text-sm rounded ${
+                className={`px-3 py-1.5 text-sm rounded disabled:opacity-50 ${
                   mode === 'directory'
                     ? 'bg-blue-600 text-white'
                     : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -576,8 +447,9 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
                 type="file"
                 accept=".mp4"
                 multiple
+                disabled={loading}
                 onChange={handleFileChange}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
               />
             ) : (
               <input
@@ -585,8 +457,9 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
                 type="file"
                 // @ts-expect-error webkitdirectory is not in React types
                 webkitdirectory=""
+                disabled={loading}
                 onChange={handleFileChange}
-                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50"
               />
             )}
           </div>
@@ -600,6 +473,17 @@ export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: Upload
                   <li key={i} className="truncate">{f.name}</li>
                 ))}
               </ul>
+            </div>
+          )}
+          {loading && (
+            <div className="space-y-1">
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${uploadProgress}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-500 text-right">{uploadProgress}%</p>
             </div>
           )}
         </div>

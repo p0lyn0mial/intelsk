@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueries, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { getCameras } from '../api/client';
-import type { CameraInfo } from '../api/types';
+import { getCameras, getCameraStats } from '../api/client';
+import type { CameraInfo, CameraDateStats } from '../api/types';
 import {
   AddCameraModal,
   EditCameraModal,
   DeleteCameraDialog,
-  DownloadVideoModal,
   UploadVideoModal,
 } from '../components/CameraModals';
 
@@ -22,10 +21,22 @@ export default function CamerasPage() {
     refetchInterval: 10000,
   });
 
+  const statsQueries = useQueries({
+    queries: cameras.map((cam) => ({
+      queryKey: ['cameraStats', cam.id],
+      queryFn: () => getCameraStats(cam.id),
+      enabled: cameras.length > 0,
+    })),
+  });
+
+  const statsMap = cameras.reduce<Record<string, CameraDateStats[]>>((acc, cam, i) => {
+    acc[cam.id] = statsQueries[i]?.data ?? [];
+    return acc;
+  }, {});
+
   const [showAdd, setShowAdd] = useState(false);
   const [editCamera, setEditCamera] = useState<CameraInfo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CameraInfo | null>(null);
-  const [downloadTarget, setDownloadTarget] = useState<CameraInfo | null>(null);
   const [uploadTarget, setUploadTarget] = useState<CameraInfo | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['cameras'] });
@@ -55,19 +66,10 @@ export default function CamerasPage() {
               key={cam.id}
               className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow"
             >
-              <Link to={`/?camera=${cam.id}`} className="block">
+              <Link to={`/cameras/${cam.id}`} className="block">
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium text-gray-900">{cam.name}</h3>
                   <div className="flex items-center gap-2">
-                    <span
-                      className={`text-xs px-2 py-0.5 rounded-full ${
-                        cam.type === 'test'
-                          ? 'bg-purple-100 text-purple-700'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {t(`cameras.type_${cam.type}`)}
-                    </span>
                     <span
                       className={`text-xs px-2 py-0.5 rounded-full ${
                         cam.status === 'indexed'
@@ -86,6 +88,15 @@ export default function CamerasPage() {
                   </div>
                 </div>
                 <p className="text-sm text-gray-500 mt-1">{cam.id}</p>
+                {statsMap[cam.id] && statsMap[cam.id].length > 0 && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    {t('cameras.stats_summary', {
+                      dates: statsMap[cam.id].length,
+                      videos: statsMap[cam.id].reduce((s, d) => s + d.video_count, 0),
+                      frames: statsMap[cam.id].reduce((s, d) => s + d.frame_count, 0),
+                    })}
+                  </p>
+                )}
               </Link>
               <div className="flex items-center gap-2 mt-3 pt-3 border-t">
                 {cam.created_at && (
@@ -96,22 +107,12 @@ export default function CamerasPage() {
                     {t('cameras.edit')}
                   </button>
                 )}
-                {cam.type === 'test' && (
-                  <button
-                    onClick={() => setDownloadTarget(cam)}
-                    className="px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded min-h-[36px]"
-                  >
-                    {t('cameras.download')}
-                  </button>
-                )}
-                {cam.type === 'local' && (
-                  <button
-                    onClick={() => setUploadTarget(cam)}
-                    className="px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded min-h-[36px]"
-                  >
-                    {t('cameras.upload')}
-                  </button>
-                )}
+                <button
+                  onClick={() => setUploadTarget(cam)}
+                  className="px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded min-h-[36px]"
+                >
+                  {t('cameras.upload')}
+                </button>
                 <button
                   onClick={() => setDeleteTarget(cam)}
                   className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded ml-auto min-h-[36px]"
@@ -140,12 +141,6 @@ export default function CamerasPage() {
         camera={deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onDeleted={refresh}
-      />
-      <DownloadVideoModal
-        isOpen={downloadTarget !== null}
-        camera={downloadTarget}
-        onClose={() => setDownloadTarget(null)}
-        onDownloaded={refresh}
       />
       <UploadVideoModal
         isOpen={uploadTarget !== null}
