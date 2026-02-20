@@ -23,8 +23,10 @@ export default function MainPage() {
 
   // Filter state
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const today = new Date().toISOString().split('T')[0];
+  const [startDate, setStartDate] = useState(today);
+  const [endDate, setEndDate] = useState(today);
+  const [datesChanged, setDatesChanged] = useState(false);
 
   // Search state
   const [query, setQuery] = useState('');
@@ -56,8 +58,8 @@ export default function MainPage() {
       const res = await searchText({
         query: trimmed,
         camera_ids: selectedCameras.length > 0 ? selectedCameras : undefined,
-        start_time: startDate || undefined,
-        end_time: endDate || undefined,
+        start_time: datesChanged && startDate ? startDate : undefined,
+        end_time: datesChanged && endDate ? endDate : undefined,
         limit: 40,
       });
       setResults(res.results);
@@ -115,7 +117,7 @@ export default function MainPage() {
             <input
               type="date"
               value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
+              onChange={(e) => { setStartDate(e.target.value); setDatesChanged(true); }}
               className="w-full px-3 py-2 border rounded-md text-sm"
             />
           </div>
@@ -126,7 +128,7 @@ export default function MainPage() {
             <input
               type="date"
               value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
+              onChange={(e) => { setEndDate(e.target.value); setDatesChanged(true); }}
               className="w-full px-3 py-2 border rounded-md text-sm"
             />
           </div>
