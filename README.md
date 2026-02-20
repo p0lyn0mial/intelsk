@@ -49,18 +49,21 @@ Open http://localhost:5173 to use the web UI.
 ### 3. Create a camera, upload footage, and search
 
 1. Go to the **Cameras** page and click **Add Camera**.
-   - Choose type **Local**, give it an ID (e.g. `front-door`) and a name.
+   - Give it an ID (e.g. `front-door`) and a name.
    - The "Transcode H.265 to H.264" checkbox is on by default — leave it
      checked if your camera records in HEVC, so videos play in the browser.
 2. On the camera card, click **Upload Video** and select one or more `.mp4`
-   files (or a whole directory). Uploaded files are saved under
-   `data/videos/{camera-id}/{today's date}/`.
-3. Go back to the **Main** page. Today's date is pre-filled. Select your
+   files (or a whole directory). A progress bar shows upload status.
+   Uploaded files are saved under `data/videos/{camera-id}/{today's date}/`.
+3. Click the camera card to open its **detail page**, where you can see all
+   uploaded videos grouped by date, delete individual videos, or delete all
+   data for the camera.
+4. Go to the **Process** page. Today's date is pre-filled. Select your
    camera(s) and click **Process**. This extracts frames and indexes them
    with CLIP (wait for the progress bar to finish).
-4. Type a natural-language query in the search box — e.g. "person carrying a
-   box" — and click **Search**. Results show matched frames with scores;
-   click the play button to jump to the moment in the source video.
+5. Go to the **Search** page. Type a natural-language query — e.g. "person
+   carrying a box" — and click **Search**. Results show matched frames with
+   scores; click the play button to jump to the moment in the source video.
 
 To start fresh (remove all data including videos, frames, and database):
 
@@ -87,6 +90,7 @@ intelsk/
       storage.go         # SQLite storage (embeddings)
       settings.go        # runtime settings (DB-backed, in-memory cached)
       pipeline.go        # indexing pipeline with resume support
+      camera.go          # camera CRUD, video management, data cleanup
   mlservice/             # Python ML sidecar
     main.py              # FastAPI app
     clip_encoder.py      # MobileCLIP2 image/text encoding
@@ -95,8 +99,8 @@ intelsk/
     run.sh
   frontend/              # React web UI
     src/
-      pages/             # MainPage (process + search), CamerasPage, SettingsPage
-      components/        # NavBar, ResultCard, VideoPlayerModal, PlayButtonOverlay
+      pages/             # MainPage (search), CamerasPage, CameraDetailPage, ProcessPage, SettingsPage
+      components/        # NavBar, ResultCard, VideoPlayerModal, CameraModals
       api/               # API client + TypeScript types
       i18n/              # EN/PL translations
       hooks/             # useVideoPlayer, useSearchHistory
@@ -173,16 +177,18 @@ Usage: backend serve [flags]
 | PUT | `/api/cameras/{id}` | Update camera |
 | DELETE | `/api/cameras/{id}` | Delete camera |
 | GET | `/api/cameras/{id}/stats` | Per-date video/frame counts |
-| POST | `/api/cameras/{id}/download` | Download video from URL (test cameras) |
-| POST | `/api/cameras/{id}/upload` | Upload .mp4 files (local cameras) |
+| GET | `/api/cameras/{id}/videos` | List video files for camera |
+| DELETE | `/api/cameras/{id}/videos` | Delete a single video file |
+| DELETE | `/api/cameras/{id}/data` | Delete all data (videos, frames, embeddings) |
+| POST | `/api/cameras/{id}/upload` | Upload .mp4 files |
 | GET | `/api/videos/{video_id}/play` | Stream video with seeking |
 | GET | `/api/frames/*` | Serve frame images |
 
 ## Configuration
 
 Most settings are stored in **SQLite** and editable at runtime through the
-Settings page (`/settings`) or `PUT /api/settings`. Changes take effect
-immediately without a restart.
+Settings page (`/settings`) or `PUT /api/settings`. Settings auto-save after
+changes and take effect immediately without a restart.
 
 | Setting | Default | Range |
 |---------|---------|-------|
