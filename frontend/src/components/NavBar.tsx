@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -14,6 +14,10 @@ export default function NavBar() {
     queryFn: getSettings,
   });
   const systemName = (settingsData?.settings['general.system_name'] as string) || t('nav.title');
+
+  useEffect(() => {
+    document.title = systemName;
+  }, [systemName]);
 
   const toggleLang = () => {
     const next = i18n.language === 'en' ? 'pl' : 'en';
