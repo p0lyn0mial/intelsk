@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { CameraInfo, CreateCameraRequest, UpdateCameraRequest } from '../api/types';
-import { createCamera, updateCamera, deleteCamera, downloadVideo } from '../api/client';
+import { createCamera, updateCamera, deleteCamera, downloadVideo, uploadVideos } from '../api/client';
 
 // --- Shared modal backdrop ---
 
@@ -467,6 +467,160 @@ export function DownloadVideoModal({ isOpen, camera, onClose, onDownloaded }: Do
           </button>
         </div>
       </form>
+    </ModalBackdrop>
+  );
+}
+
+// --- Upload Video Modal ---
+
+interface UploadVideoModalProps {
+  isOpen: boolean;
+  camera: CameraInfo | null;
+  onClose: () => void;
+  onUploaded: () => void;
+}
+
+export function UploadVideoModal({ isOpen, camera, onClose, onUploaded }: UploadVideoModalProps) {
+  const { t } = useTranslation();
+  const [mode, setMode] = useState<'files' | 'directory'>('files');
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setMode('files');
+      setSelectedFiles([]);
+      setError('');
+      setSuccess('');
+    }
+  }, [isOpen]);
+
+  if (!isOpen || !camera) return null;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const mp4Files = Array.from(files).filter(
+      (f) => f.name.toLowerCase().endsWith('.mp4')
+    );
+    setSelectedFiles(mp4Files);
+    setError('');
+    setSuccess('');
+  };
+
+  const handleUpload = async () => {
+    if (selectedFiles.length === 0) return;
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      const result = await uploadVideos(camera.id, selectedFiles);
+      setSuccess(t('cameras.upload_success', { count: result.paths.length }));
+      setSelectedFiles([]);
+      onUploaded();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <ModalBackdrop onClose={onClose}>
+      <div>
+        <div className="px-6 py-4 border-b">
+          <h2 className="text-lg font-semibold">{t('cameras.upload_title')}</h2>
+        </div>
+        <div className="px-6 py-4 space-y-4">
+          {error && (
+            <div className="text-sm text-red-600 bg-red-50 rounded p-2">{error}</div>
+          )}
+          {success && (
+            <div className="text-sm text-green-600 bg-green-50 rounded p-2">{success}</div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              {t('cameras.upload_mode')}
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setMode('files'); setSelectedFiles([]); }}
+                className={`px-3 py-1.5 text-sm rounded ${
+                  mode === 'files'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {t('cameras.upload_mode_files')}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMode('directory'); setSelectedFiles([]); }}
+                className={`px-3 py-1.5 text-sm rounded ${
+                  mode === 'directory'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {t('cameras.upload_mode_directory')}
+              </button>
+            </div>
+          </div>
+          <div>
+            {mode === 'files' ? (
+              <input
+                key="files"
+                type="file"
+                accept=".mp4"
+                multiple
+                onChange={handleFileChange}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            ) : (
+              <input
+                key="directory"
+                type="file"
+                // @ts-expect-error webkitdirectory is not in React types
+                webkitdirectory=""
+                onChange={handleFileChange}
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            )}
+          </div>
+          {selectedFiles.length > 0 && (
+            <div>
+              <p className="text-sm text-gray-600 mb-1">
+                {t('cameras.upload_selected', { count: selectedFiles.length })}
+              </p>
+              <ul className="text-xs text-gray-500 max-h-32 overflow-y-auto space-y-0.5">
+                {selectedFiles.map((f, i) => (
+                  <li key={i} className="truncate">{f.name}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+        <div className="px-6 py-4 border-t flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded min-h-[44px]"
+          >
+            {t('cameras.cancel')}
+          </button>
+          <button
+            type="button"
+            onClick={handleUpload}
+            disabled={loading || selectedFiles.length === 0}
+            className="px-4 py-2 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 min-h-[44px]"
+          >
+            {loading ? t('cameras.uploading') : t('cameras.upload')}
+          </button>
+        </div>
+      </div>
     </ModalBackdrop>
   );
 }

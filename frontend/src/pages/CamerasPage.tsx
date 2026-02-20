@@ -9,6 +9,7 @@ import {
   EditCameraModal,
   DeleteCameraDialog,
   DownloadVideoModal,
+  UploadVideoModal,
 } from '../components/CameraModals';
 
 export default function CamerasPage() {
@@ -25,6 +26,7 @@ export default function CamerasPage() {
   const [editCamera, setEditCamera] = useState<CameraInfo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CameraInfo | null>(null);
   const [downloadTarget, setDownloadTarget] = useState<CameraInfo | null>(null);
+  const [uploadTarget, setUploadTarget] = useState<CameraInfo | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['cameras'] });
 
@@ -102,6 +104,14 @@ export default function CamerasPage() {
                     {t('cameras.download')}
                   </button>
                 )}
+                {cam.type === 'local' && (
+                  <button
+                    onClick={() => setUploadTarget(cam)}
+                    className="px-3 py-1.5 text-xs text-blue-600 hover:bg-blue-50 rounded min-h-[36px]"
+                  >
+                    {t('cameras.upload')}
+                  </button>
+                )}
                 <button
                   onClick={() => setDeleteTarget(cam)}
                   className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded ml-auto min-h-[36px]"
@@ -136,6 +146,12 @@ export default function CamerasPage() {
         camera={downloadTarget}
         onClose={() => setDownloadTarget(null)}
         onDownloaded={refresh}
+      />
+      <UploadVideoModal
+        isOpen={uploadTarget !== null}
+        camera={uploadTarget}
+        onClose={() => setUploadTarget(null)}
+        onUploaded={refresh}
       />
     </div>
   );

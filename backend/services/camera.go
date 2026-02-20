@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/intelsk/backend/config"
@@ -247,6 +248,64 @@ func (s *CameraService) Download(id string, url string) (string, error) {
 	if _, err := io.Copy(out, resp.Body); err != nil {
 		os.Remove(destPath)
 		return "", fmt.Errorf("downloading video: %w", err)
+	}
+
+	return destPath, nil
+}
+
+// Upload saves an uploaded file to the camera's video directory.
+// Only works for cameras with type "local".
+func (s *CameraService) Upload(id string, file io.Reader, filename string) (string, error) {
+	cam, err := s.Get(id)
+	if err != nil {
+		return "", err
+	}
+	if cam.Type != "local" {
+		return "", fmt.Errorf("upload is only available for local cameras")
+	}
+
+	// Create dated subdirectory
+	today := time.Now().Format("2006-01-02")
+	dir := filepath.Join(s.cfg.App.DataDir, "videos", id, today)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating directory: %w", err)
+	}
+
+	// Sanitize filename: keep only the base name, replace unsafe chars
+	safe := filepath.Base(filename)
+	safe = strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '.' {
+			return r
+		}
+		return '_'
+	}, safe)
+	if safe == "" || safe == "." || safe == ".." {
+		safe = "upload.mp4"
+	}
+
+	// Handle filename collision by appending _1, _2, etc.
+	destPath := filepath.Join(dir, safe)
+	if _, err := os.Stat(destPath); err == nil {
+		ext := filepath.Ext(safe)
+		base := strings.TrimSuffix(safe, ext)
+		for i := 1; ; i++ {
+			candidate := filepath.Join(dir, fmt.Sprintf("%s_%d%s", base, i, ext))
+			if _, err := os.Stat(candidate); os.IsNotExist(err) {
+				destPath = candidate
+				break
+			}
+		}
+	}
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		return "", fmt.Errorf("creating file: %w", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, file); err != nil {
+		os.Remove(destPath)
+		return "", fmt.Errorf("saving file: %w", err)
 	}
 
 	return destPath, nil

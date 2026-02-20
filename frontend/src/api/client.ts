@@ -66,6 +66,22 @@ export async function downloadVideo(id: string, req: DownloadRequest): Promise<{
   });
 }
 
+export async function uploadVideos(id: string, files: FileList | File[]): Promise<{ status: string; paths: string[] }> {
+  const formData = new FormData();
+  for (let i = 0; i < files.length; i++) {
+    formData.append('files', files[i]);
+  }
+  const res = await fetch(`${BASE}/cameras/${id}/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.json();
+}
+
 export async function startProcess(req: ProcessRequest): Promise<ProcessResponse> {
   return fetchJSON(`${BASE}/process`, {
     method: 'POST',

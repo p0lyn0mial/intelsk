@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/intelsk/backend/models"
@@ -97,4 +99,49 @@ func (h *CamerasHandler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "downloaded", "path": path})
+}
+
+func (h *CamerasHandler) Upload(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// 32 MB memory limit; rest spills to disk
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to parse multipart form"})
+		return
+	}
+
+	files := r.MultipartForm.File["files"]
+	if len(files) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no files provided"})
+		return
+	}
+
+	var paths []string
+	for _, fh := range files {
+		// Skip non-.mp4 files
+		if strings.ToLower(filepath.Ext(fh.Filename)) != ".mp4" {
+			continue
+		}
+
+		file, err := fh.Open()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to open uploaded file"})
+			return
+		}
+
+		path, err := h.svc.Upload(id, file, fh.Filename)
+		file.Close()
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		paths = append(paths, path)
+	}
+
+	if len(paths) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no .mp4 files found in upload"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"status": "uploaded", "paths": paths})
 }

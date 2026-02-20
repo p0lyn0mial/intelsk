@@ -79,6 +79,7 @@ func Start(cfg *config.AppConfig) {
 		r.Put("/cameras/{id}", camerasHandler.Update)
 		r.Delete("/cameras/{id}", camerasHandler.Delete)
 		r.Post("/cameras/{id}/download", camerasHandler.Download)
+		r.Post("/cameras/{id}/upload", camerasHandler.Upload)
 
 		// Video playback
 		r.Get("/videos/{video_id}/play", videoHandler.Play)
