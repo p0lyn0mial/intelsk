@@ -20,7 +20,7 @@ export default function ProcessPage() {
   // Form state
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState('');
+  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
 
   // Processing state
   const [processing, setProcessing] = useState(false);
