@@ -21,6 +21,7 @@ class Searcher:
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int = 20,
+        min_score: float = 0.18,
     ) -> list[dict]:
         """Encode text and rank stored CLIP embeddings by cosine similarity."""
         text_emb = self.encoder.encode_text(text)
@@ -50,11 +51,13 @@ class Searcher:
         # Cosine similarity = dot product (embeddings are L2-normalized)
         scores = emb_matrix @ text_emb
 
-        # Rank by descending score
+        # Rank by descending score, drop anything below the relevance threshold
         ranked_indices = np.argsort(scores)[::-1][:limit]
 
         results = []
         for idx in ranked_indices:
+            if scores[idx] < min_score:
+                break
             results.append({
                 "id": ids[idx],
                 "frame_path": metadata[idx]["frame_path"],

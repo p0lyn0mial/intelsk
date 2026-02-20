@@ -28,11 +28,15 @@ func Start(cfg *config.AppConfig) {
 	defer storage.Close()
 	log.Printf("SQLite storage at %s", cfg.Storage.DBPath)
 
+	// Init settings
+	settingsSvc := services.NewSettingsService(storage.DB(), cfg)
+
 	// Init handlers
-	processHandler := api.NewProcessHandler(cfg, mlClient, storage)
-	searchHandler := api.NewSearchHandler(cfg, mlClient)
+	processHandler := api.NewProcessHandler(cfg, mlClient, storage, settingsSvc)
+	searchHandler := api.NewSearchHandler(cfg, mlClient, settingsSvc)
 	camerasHandler := api.NewCamerasHandler(cfg)
 	videoHandler := api.NewVideoHandler(cfg)
+	settingsHandler := api.NewSettingsHandler(settingsSvc)
 
 	// Router
 	r := chi.NewRouter()
@@ -60,6 +64,10 @@ func Start(cfg *config.AppConfig) {
 
 		// Search
 		r.Post("/search/text", searchHandler.TextSearch)
+
+		// Settings
+		r.Get("/settings", settingsHandler.Get)
+		r.Put("/settings", settingsHandler.Update)
 
 		// Cameras
 		r.Get("/cameras", camerasHandler.List)

@@ -16,6 +16,7 @@ export default function NavBar() {
   const navLinks = [
     { to: '/', label: t('nav.title') },
     { to: '/cameras', label: t('nav.cameras') },
+    { to: '/settings', label: t('nav.settings') },
   ];
 
   return (

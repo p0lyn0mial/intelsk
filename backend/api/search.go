@@ -17,12 +17,14 @@ import (
 type SearchHandler struct {
 	cfg      *config.AppConfig
 	mlClient *services.MLClient
+	settings *services.SettingsService
 }
 
-func NewSearchHandler(cfg *config.AppConfig, mlClient *services.MLClient) *SearchHandler {
+func NewSearchHandler(cfg *config.AppConfig, mlClient *services.MLClient, settings *services.SettingsService) *SearchHandler {
 	return &SearchHandler{
 		cfg:      cfg,
 		mlClient: mlClient,
+		settings: settings,
 	}
 }
 
@@ -39,9 +41,10 @@ func (h *SearchHandler) TextSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Limit == 0 {
-		req.Limit = 20
+		req.Limit = h.settings.GetInt("search.default_limit")
 	}
 
+	minScore := h.settings.GetFloat64("search.min_score")
 	results, err := h.mlClient.SearchByText(
 		h.cfg.Storage.DBPath,
 		req.Query,
@@ -49,6 +52,7 @@ func (h *SearchHandler) TextSearch(w http.ResponseWriter, r *http.Request) {
 		req.StartTime,
 		req.EndTime,
 		req.Limit,
+		minScore,
 	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"search failed: %s"}`, err), http.StatusInternalServerError)

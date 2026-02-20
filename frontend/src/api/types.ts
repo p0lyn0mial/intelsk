@@ -50,5 +50,12 @@ export interface SearchResponse {
 export interface ProcessHistoryEntry {
   camera_id: string;
   date: string;
+  videos?: string[];
   indexed_at: string;
+}
+
+export type SettingsMap = Record<string, number | boolean>;
+
+export interface SettingsResponse {
+  settings: SettingsMap;
 }

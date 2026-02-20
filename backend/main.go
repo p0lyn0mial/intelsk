@@ -307,7 +307,7 @@ func runSearch(args []string) {
 		cameraIDs = []string{*camera}
 	}
 
-	results, err := mlClient.SearchByText(cfg.Storage.DBPath, *text, cameraIDs, "", "", *limit)
+	results, err := mlClient.SearchByText(cfg.Storage.DBPath, *text, cameraIDs, "", "", *limit, 0.18)
 	if err != nil {
 		log.Fatalf("search failed: %v", err)
 	}

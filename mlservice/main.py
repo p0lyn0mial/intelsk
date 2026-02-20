@@ -40,6 +40,7 @@ class SearchImageRequest(BaseModel):
     start_time: str | None = None
     end_time: str | None = None
     limit: int = 20
+    min_score: float = 0.18
 
 
 # --- Endpoints ---
@@ -70,5 +71,6 @@ def search_image(req: SearchImageRequest):
         start_time=req.start_time,
         end_time=req.end_time,
         limit=req.limit,
+        min_score=req.min_score,
     )
     return {"results": results}

@@ -65,6 +65,7 @@ type SearchResponse struct {
 type ProcessHistoryEntry struct {
 	CameraID  string    `json:"camera_id"`
 	Date      string    `json:"date"`
+	Videos    []string  `json:"videos,omitempty"`
 	IndexedAt time.Time `json:"indexed_at"`
 }
 
@@ -72,4 +73,12 @@ type CameraInfo struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
+}
+
+type SettingsResponse struct {
+	Settings map[string]any `json:"settings"`
+}
+
+type SettingsUpdateRequest struct {
+	Settings map[string]any `json:"settings"`
 }

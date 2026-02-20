@@ -20,6 +20,7 @@ type ProcessHandler struct {
 	cfg      *config.AppConfig
 	mlClient *services.MLClient
 	storage  *services.Storage
+	settings *services.SettingsService
 
 	mu         sync.Mutex
 	activeJobs map[string]*jobState
@@ -34,11 +35,12 @@ type jobState struct {
 	doneCh   chan struct{}
 }
 
-func NewProcessHandler(cfg *config.AppConfig, mlClient *services.MLClient, storage *services.Storage) *ProcessHandler {
+func NewProcessHandler(cfg *config.AppConfig, mlClient *services.MLClient, storage *services.Storage, settings *services.SettingsService) *ProcessHandler {
 	return &ProcessHandler{
 		cfg:        cfg,
 		mlClient:   mlClient,
 		storage:    storage,
+		settings:   settings,
 		activeJobs: make(map[string]*jobState),
 	}
 }
@@ -59,22 +61,30 @@ func (h *ProcessHandler) Start(w http.ResponseWriter, r *http.Request) {
 		req.EndDate = req.StartDate
 	}
 
-	// Check process history — skip already-indexed combos
+	// Quick check: any new videos to process across all cameras × dates?
 	history := loadProcessHistory(h.cfg.Process.HistoryPath)
-	allCached := true
-	for _, camID := range req.CameraIDs {
-		if !isProcessed(history, camID, req.StartDate) {
-			allCached = false
-			break
+	dates, err := dateRange(req.StartDate, req.EndDate)
+	if err == nil {
+		allCached := true
+		for _, camID := range req.CameraIDs {
+			for _, date := range dates {
+				videosDir := filepath.Join(h.cfg.App.DataDir, "videos", camID, date)
+				if len(newVideosForDate(history, camID, date, videosDir)) > 0 {
+					allCached = false
+					break
+				}
+			}
+			if !allCached {
+				break
+			}
 		}
-	}
-
-	if allCached {
-		writeJSON(w, http.StatusOK, models.ProcessResponse{
-			JobID:  "",
-			Status: "already_cached",
-		})
-		return
+		if allCached {
+			writeJSON(w, http.StatusOK, models.ProcessResponse{
+				JobID:  "",
+				Status: "already_cached",
+			})
+			return
+		}
 	}
 
 	// Create job
@@ -120,7 +130,7 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 		return
 	}
 
-	pipeline := services.NewPipeline(h.mlClient, h.storage, h.cfg.CLIP.BatchSize)
+	pipeline := services.NewPipeline(h.mlClient, h.storage, h.settings.GetInt("clip.batch_size"))
 
 	// Collect events from pipeline into job state
 	go func() {
@@ -132,7 +142,6 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 	}()
 
 	for _, camID := range req.CameraIDs {
-		// Generate list of dates from start to end
 		dates, err := dateRange(req.StartDate, req.EndDate)
 		if err != nil {
 			h.mu.Lock()
@@ -144,7 +153,14 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 		}
 
 		for _, date := range dates {
-			if isProcessed(loadProcessHistory(h.cfg.Process.HistoryPath), camID, date) {
+			videosDir := filepath.Join(h.cfg.App.DataDir, "videos", camID, date)
+			framesDir := filepath.Join(h.cfg.Extraction.StoragePath, camID, date)
+
+			// Determine which videos still need processing
+			history := loadProcessHistory(h.cfg.Process.HistoryPath)
+			videosToProcess := newVideosForDate(history, camID, date, videosDir)
+
+			if len(videosToProcess) == 0 {
 				job.eventCh <- services.ProgressEvent{
 					Stage:    "skipped",
 					CameraID: camID,
@@ -153,55 +169,44 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 				continue
 			}
 
-			// Step 1: Extract frames from videos (if not already extracted)
-			framesDir := filepath.Join(h.cfg.Extraction.StoragePath, camID, date)
-			manifest := filepath.Join(framesDir, "manifest.json")
+			// Step 1: Extract frames from new videos only
+			job.eventCh <- services.ProgressEvent{
+				Stage:    "extracting",
+				CameraID: camID,
+				Message:  fmt.Sprintf("extracting frames from %d video(s) for %s/%s", len(videosToProcess), camID, date),
+			}
 
-			if _, err := os.Stat(manifest); os.IsNotExist(err) {
-				// Run extraction
-				job.eventCh <- services.ProgressEvent{
-					Stage:    "extracting",
-					CameraID: camID,
-					Message:  fmt.Sprintf("extracting frames for %s/%s", camID, date),
-				}
+			// Load existing manifest (frames from previously processed videos)
+			existingFrames, _ := services.LoadManifest(framesDir)
+			var newFrames []models.FrameMetadata
 
-				videosDir := filepath.Join(h.cfg.App.DataDir, "videos", camID, date)
-				entries, err := os.ReadDir(videosDir)
+			for _, videoFile := range videosToProcess {
+				videoPath := filepath.Join(videosDir, videoFile)
+				frames, err := services.ExtractFramesTime(
+					videoPath, framesDir,
+					h.settings.GetInt("extraction.time_interval_sec"),
+					h.settings.GetInt("extraction.output_quality"),
+				)
 				if err != nil {
-					job.eventCh <- services.ProgressEvent{
-						Stage:    "error",
-						CameraID: camID,
-						Message:  fmt.Sprintf("no videos found for %s/%s: %v", camID, date, err),
-					}
+					log.Printf("extraction failed for %s: %v", videoPath, err)
 					continue
 				}
 
-				for _, e := range entries {
-					if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".mp4") {
-						continue
-					}
-					videoPath := filepath.Join(videosDir, e.Name())
-					frames, err := services.ExtractFramesTime(
-						videoPath, framesDir,
-						h.cfg.Extraction.TimeIntervalSec,
-						h.cfg.Extraction.OutputQuality,
-					)
-					if err != nil {
-						log.Printf("extraction failed for %s: %v", videoPath, err)
-						continue
-					}
-
-					if h.cfg.Extraction.DedupEnabled {
-						frames, _ = services.DeduplicateFrames(frames, h.cfg.Extraction.DedupPHashThreshold)
-					}
-
-					if err := services.WriteManifest(framesDir, frames); err != nil {
-						log.Printf("writing manifest for %s: %v", videoPath, err)
-					}
+				if h.settings.GetBool("extraction.dedup_enabled") {
+					frames, _ = services.DeduplicateFrames(frames, h.settings.GetInt("extraction.dedup_phash_threshold"))
 				}
+
+				newFrames = append(newFrames, frames...)
 			}
 
-			// Step 2: Index frames
+			// Merge with existing and write combined manifest
+			allFrames := append(existingFrames, newFrames...)
+			if err := services.WriteManifest(framesDir, allFrames); err != nil {
+				log.Printf("writing manifest for %s/%s: %v", camID, date, err)
+			}
+
+			// Step 2: Index frames (pipeline handles incrementality via index_state.json)
+			manifest := filepath.Join(framesDir, "manifest.json")
 			if _, err := os.Stat(manifest); err != nil {
 				job.eventCh <- services.ProgressEvent{
 					Stage:    "error",
@@ -227,8 +232,9 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 				continue
 			}
 
-			// Record in process history
-			addProcessHistory(h.cfg.Process.HistoryPath, camID, date)
+			// Record all videos for this camera+date in process history
+			allVideoFiles := listVideoFiles(videosDir)
+			addProcessHistory(h.cfg.Process.HistoryPath, camID, date, allVideoFiles)
 		}
 	}
 
@@ -325,28 +331,81 @@ func loadProcessHistory(path string) []models.ProcessHistoryEntry {
 	return history
 }
 
-func isProcessed(history []models.ProcessHistoryEntry, cameraID, date string) bool {
-	for _, h := range history {
-		if h.CameraID == cameraID && h.Date == date {
-			return true
-		}
+// listVideoFiles returns basenames of .mp4 files in a directory.
+func listVideoFiles(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
 	}
-	return false
+	var files []string
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(strings.ToLower(e.Name()), ".mp4") {
+			continue
+		}
+		files = append(files, e.Name())
+	}
+	return files
 }
 
-func addProcessHistory(path, cameraID, date string) {
-	history := loadProcessHistory(path)
-
-	// Don't add duplicates
-	if isProcessed(history, cameraID, date) {
-		return
+// newVideosForDate returns video basenames in videosDir that haven't been
+// processed yet according to the history. If the history entry for this
+// camera+date has no Videos list (legacy format), it is treated as fully
+// processed for backward compatibility.
+func newVideosForDate(history []models.ProcessHistoryEntry, cameraID, date, videosDir string) []string {
+	allVideos := listVideoFiles(videosDir)
+	if len(allVideos) == 0 {
+		return nil
 	}
 
-	history = append(history, models.ProcessHistoryEntry{
-		CameraID:  cameraID,
-		Date:      date,
-		IndexedAt: time.Now(),
-	})
+	// Find history entry
+	var processed []string
+	for _, h := range history {
+		if h.CameraID == cameraID && h.Date == date {
+			if len(h.Videos) == 0 {
+				// Legacy entry without video list — treat as fully processed
+				return nil
+			}
+			processed = h.Videos
+			break
+		}
+	}
+
+	processedSet := make(map[string]bool, len(processed))
+	for _, v := range processed {
+		processedSet[v] = true
+	}
+
+	var newVids []string
+	for _, v := range allVideos {
+		if !processedSet[v] {
+			newVids = append(newVids, v)
+		}
+	}
+	return newVids
+}
+
+func addProcessHistory(path, cameraID, date string, videos []string) {
+	history := loadProcessHistory(path)
+
+	// Update existing entry or add new one
+	found := false
+	for i := range history {
+		if history[i].CameraID == cameraID && history[i].Date == date {
+			history[i].Videos = videos
+			history[i].IndexedAt = time.Now()
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		history = append(history, models.ProcessHistoryEntry{
+			CameraID:  cameraID,
+			Date:      date,
+			Videos:    videos,
+			IndexedAt: time.Now(),
+		})
+	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		log.Printf("creating history directory: %v", err)

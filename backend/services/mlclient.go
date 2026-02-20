@@ -101,7 +101,7 @@ func (c *MLClient) EncodeText(text string) ([]float64, error) {
 }
 
 func (c *MLClient) SearchByText(dbPath, text string, cameraIDs []string,
-	startTime, endTime string, limit int) ([]models.SearchResult, error) {
+	startTime, endTime string, limit int, minScore float64) ([]models.SearchResult, error) {
 	body, err := json.Marshal(map[string]any{
 		"db_path":    dbPath,
 		"text":       text,
@@ -109,6 +109,7 @@ func (c *MLClient) SearchByText(dbPath, text string, cameraIDs []string,
 		"start_time": startTime,
 		"end_time":   endTime,
 		"limit":      limit,
+		"min_score":  minScore,
 	})
 	if err != nil {
 		return nil, err

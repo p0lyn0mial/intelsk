@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import NavBar from './components/NavBar';
 import MainPage from './pages/MainPage';
 import CamerasPage from './pages/CamerasPage';
+import SettingsPage from './pages/SettingsPage';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,6 +23,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<MainPage />} />
             <Route path="/cameras" element={<CamerasPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </div>
       </BrowserRouter>

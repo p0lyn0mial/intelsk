@@ -72,6 +72,12 @@ CREATE TABLE IF NOT EXISTS face_embeddings (
 CREATE INDEX IF NOT EXISTS idx_face_camera_ts ON face_embeddings(camera_id, timestamp);
 CREATE INDEX IF NOT EXISTS idx_face_person ON face_embeddings(person_name);
 CREATE INDEX IF NOT EXISTS idx_face_created ON face_embeddings(created_at);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `
 	_, err := db.Exec(schema)
 	if err != nil {
@@ -110,6 +116,10 @@ func (s *Storage) Cleanup(olderThan time.Time) (int64, error) {
 	total += n
 
 	return total, nil
+}
+
+func (s *Storage) DB() *sql.DB {
+	return s.db
 }
 
 func (s *Storage) Close() error {
