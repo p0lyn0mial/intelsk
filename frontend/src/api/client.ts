@@ -1,5 +1,8 @@
 import type {
   CameraInfo,
+  CreateCameraRequest,
+  UpdateCameraRequest,
+  DownloadRequest,
   ProcessRequest,
   ProcessResponse,
   ProcessHistoryEntry,
@@ -27,6 +30,40 @@ export async function healthCheck(): Promise<{ status: string; ml_sidecar: strin
 
 export async function getCameras(): Promise<CameraInfo[]> {
   return fetchJSON(`${BASE}/cameras`);
+}
+
+export async function getCamera(id: string): Promise<CameraInfo> {
+  return fetchJSON(`${BASE}/cameras/${id}`);
+}
+
+export async function createCamera(req: CreateCameraRequest): Promise<CameraInfo> {
+  return fetchJSON(`${BASE}/cameras`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+}
+
+export async function updateCamera(id: string, req: UpdateCameraRequest): Promise<CameraInfo> {
+  return fetchJSON(`${BASE}/cameras/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+}
+
+export async function deleteCamera(id: string, deleteData: boolean): Promise<void> {
+  await fetchJSON(`${BASE}/cameras/${id}?delete_data=${deleteData}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function downloadVideo(id: string, req: DownloadRequest): Promise<{ status: string; path: string }> {
+  return fetchJSON(`${BASE}/cameras/${id}/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
 }
 
 export async function startProcess(req: ProcessRequest): Promise<ProcessResponse> {

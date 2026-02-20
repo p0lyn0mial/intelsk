@@ -25,30 +25,15 @@ sudo apt install ffmpeg golang nodejs python3 python3-venv
 
 ## Quick Start
 
-### 1. Set up Python ML sidecar
+### 1. Install dependencies
 
 ```bash
-cd mlservice
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+make setup
 ```
 
-### 2. Install frontend dependencies
+This creates the Python venv, installs pip/npm dependencies, and fetches Go modules.
 
-```bash
-cd frontend
-npm install
-```
-
-### 3. Build Go backend
-
-```bash
-cd backend
-go build ./...
-```
-
-### 4. Place video files
+### 2. Place video files
 
 Videos go in `data/videos/{camera_id}/{date}/{HH}00.mp4`:
 
@@ -59,7 +44,7 @@ cp your-video.mp4 data/videos/front_door/2026-02-18/0800.mp4
 
 The filename encodes the segment hour (e.g. `0800.mp4` = 08:00, `1400.mp4` = 14:00).
 
-### 5. Run everything
+### 3. Run everything
 
 ```bash
 make run
@@ -72,6 +57,15 @@ This starts three processes:
 
 Open http://localhost:5173 to use the web UI.
 
+You can add new videos at any time — just drop them in the right directory and
+click Process again. The system detects new files and only processes what's new.
+
+To start fresh (remove extracted frames, database, and process history):
+
+```bash
+make clean
+```
+
 ## Project Structure
 
 ```
@@ -82,13 +76,14 @@ intelsk/
   backend/               # Go backend
     main.go              # CLI entry point (extract, process, index, search, serve)
     cmd/server/          # HTTP server setup (Chi router)
-    api/                 # HTTP handlers (process, search, cameras, videos)
+    api/                 # HTTP handlers (process, search, cameras, videos, settings)
     config/config.go     # YAML config loader
     models/types.go      # shared types
     services/
       extractor.go       # frame extraction + dedup
       mlclient.go        # HTTP client for ML sidecar
       storage.go         # SQLite storage (embeddings)
+      settings.go        # runtime settings (DB-backed, in-memory cached)
       pipeline.go        # indexing pipeline with resume support
   mlservice/             # Python ML sidecar
     main.py              # FastAPI app
@@ -98,7 +93,7 @@ intelsk/
     run.sh
   frontend/              # React web UI
     src/
-      pages/             # MainPage (process + search), CamerasPage
+      pages/             # MainPage (process + search), CamerasPage, SettingsPage
       components/        # NavBar, ResultCard, VideoPlayerModal, PlayButtonOverlay
       api/               # API client + TypeScript types
       i18n/              # EN/PL translations
@@ -168,11 +163,18 @@ Usage: backend serve [flags]
 | GET | `/api/process/status?job_id=` | SSE progress stream |
 | GET | `/api/process/history` | List processed camera+date combos |
 | POST | `/api/search/text` | CLIP text search |
+| GET | `/api/settings` | Get all settings (with defaults) |
+| PUT | `/api/settings` | Update settings |
 | GET | `/api/cameras` | List discovered cameras |
 | GET | `/api/videos/{video_id}/play` | Stream video with seeking |
 | GET | `/api/frames/*` | Serve frame images |
 
 ## Configuration
+
+YAML files in `config/` provide startup defaults for infrastructure settings.
+Extraction, search, and CLIP parameters are **configurable at runtime** via the
+Settings page (`/settings`) or the `PUT /api/settings` API — changes are
+persisted in SQLite and take effect immediately without restarting.
 
 ### config/app.yaml
 
@@ -190,7 +192,7 @@ storage:
   db_path: data/intelsk.db
 
 clip:
-  batch_size: 32
+  batch_size: 32          # runtime-configurable
 
 process:
   history_path: data/process_history.json
@@ -201,13 +203,27 @@ process:
 ```yaml
 extraction:
   method: time
-  time_interval_sec: 5
+  time_interval_sec: 5    # runtime-configurable
   output_format: jpg
-  output_quality: 85
-  dedup_enabled: true
-  dedup_phash_threshold: 8
+  output_quality: 85      # runtime-configurable
+  dedup_enabled: true      # runtime-configurable
+  dedup_phash_threshold: 8 # runtime-configurable
   storage_path: data/frames
 ```
+
+### Runtime settings
+
+These settings can be changed in the UI at `/settings`:
+
+| Setting | Default | Range |
+|---------|---------|-------|
+| `search.min_score` | 0.18 | 0.0 - 1.0 |
+| `search.default_limit` | 20 | 1 - 500 |
+| `extraction.time_interval_sec` | 5 | 1 - 3600 |
+| `extraction.output_quality` | 85 | 1 - 100 |
+| `extraction.dedup_enabled` | true | — |
+| `extraction.dedup_phash_threshold` | 8 | 0 - 64 |
+| `clip.batch_size` | 32 | 1 - 256 |
 
 ## Development Roadmap
 

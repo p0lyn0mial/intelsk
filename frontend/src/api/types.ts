@@ -1,7 +1,27 @@
 export interface CameraInfo {
   id: string;
   name: string;
+  type: string;
+  config: Record<string, unknown>;
   status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateCameraRequest {
+  id: string;
+  name: string;
+  type: string;
+  config?: Record<string, unknown>;
+}
+
+export interface UpdateCameraRequest {
+  name?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface DownloadRequest {
+  url: string;
 }
 
 export interface ProcessRequest {

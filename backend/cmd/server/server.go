@@ -31,10 +31,13 @@ func Start(cfg *config.AppConfig) {
 	// Init settings
 	settingsSvc := services.NewSettingsService(storage.DB(), cfg)
 
+	// Init services
+	cameraSvc := services.NewCameraService(storage.DB(), cfg)
+
 	// Init handlers
 	processHandler := api.NewProcessHandler(cfg, mlClient, storage, settingsSvc)
 	searchHandler := api.NewSearchHandler(cfg, mlClient, settingsSvc)
-	camerasHandler := api.NewCamerasHandler(cfg)
+	camerasHandler := api.NewCamerasHandler(cameraSvc)
 	videoHandler := api.NewVideoHandler(cfg)
 	settingsHandler := api.NewSettingsHandler(settingsSvc)
 
@@ -71,6 +74,11 @@ func Start(cfg *config.AppConfig) {
 
 		// Cameras
 		r.Get("/cameras", camerasHandler.List)
+		r.Get("/cameras/{id}", camerasHandler.Get)
+		r.Post("/cameras", camerasHandler.Create)
+		r.Put("/cameras/{id}", camerasHandler.Update)
+		r.Delete("/cameras/{id}", camerasHandler.Delete)
+		r.Post("/cameras/{id}/download", camerasHandler.Download)
 
 		// Video playback
 		r.Get("/videos/{video_id}/play", videoHandler.Play)

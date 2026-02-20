@@ -1,63 +1,100 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 
-	"github.com/intelsk/backend/config"
+	"github.com/go-chi/chi/v5"
 	"github.com/intelsk/backend/models"
+	"github.com/intelsk/backend/services"
 )
 
 type CamerasHandler struct {
-	cfg *config.AppConfig
+	svc *services.CameraService
 }
 
-func NewCamerasHandler(cfg *config.AppConfig) *CamerasHandler {
-	return &CamerasHandler{cfg: cfg}
+func NewCamerasHandler(svc *services.CameraService) *CamerasHandler {
+	return &CamerasHandler{svc: svc}
 }
 
-// List returns camera IDs discovered from the data/frames/ directory structure.
 func (h *CamerasHandler) List(w http.ResponseWriter, r *http.Request) {
-	framesDir := h.cfg.Extraction.StoragePath
-	entries, err := os.ReadDir(framesDir)
+	cameras, err := h.svc.List()
 	if err != nil {
-		// No frames directory yet — return empty list
-		writeJSON(w, http.StatusOK, []models.CameraInfo{})
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, cameras)
+}
+
+func (h *CamerasHandler) Get(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	cam, err := h.svc.Get(id)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, cam)
+}
+
+func (h *CamerasHandler) Create(w http.ResponseWriter, r *http.Request) {
+	var req models.CreateCameraRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
 		return
 	}
 
-	var cameras []models.CameraInfo
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
+	cam, err := h.svc.Create(req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusCreated, cam)
+}
 
-		cam := models.CameraInfo{
-			ID:     e.Name(),
-			Name:   e.Name(),
-			Status: "offline",
-		}
-
-		// Check if camera has any indexed dates (has manifest files)
-		dateEntries, err := os.ReadDir(filepath.Join(framesDir, e.Name()))
-		if err == nil {
-			for _, de := range dateEntries {
-				if de.IsDir() {
-					manifest := filepath.Join(framesDir, e.Name(), de.Name(), "manifest.json")
-					if _, err := os.Stat(manifest); err == nil {
-						cam.Status = "indexed"
-						break
-					}
-				}
-			}
-		}
-
-		cameras = append(cameras, cam)
+func (h *CamerasHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req models.UpdateCameraRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
 	}
 
-	if cameras == nil {
-		cameras = []models.CameraInfo{}
+	cam, err := h.svc.Update(id, req)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
 	}
-	writeJSON(w, http.StatusOK, cameras)
+	writeJSON(w, http.StatusOK, cam)
+}
+
+func (h *CamerasHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	deleteData := r.URL.Query().Get("delete_data") == "true"
+
+	if err := h.svc.Delete(id, deleteData); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (h *CamerasHandler) Download(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var req models.DownloadRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid request body"})
+		return
+	}
+
+	if req.URL == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "url is required"})
+		return
+	}
+
+	path, err := h.svc.Download(id, req.URL)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "downloaded", "path": path})
 }

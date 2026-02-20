@@ -25,7 +25,10 @@ func ExtractFramesTime(videoPath, outputDir string, intervalSec, quality int) ([
 		return nil, fmt.Errorf("creating output dir: %w", err)
 	}
 
-	outputPattern := filepath.Join(outputDir, "frame_%06d.jpg")
+	// Use segment-specific prefix (e.g. frame_0800_000001.jpg) to avoid
+	// collisions when multiple videos share the same output directory.
+	segName := strings.TrimSuffix(filepath.Base(videoPath), filepath.Ext(filepath.Base(videoPath)))
+	outputPattern := filepath.Join(outputDir, fmt.Sprintf("frame_%s_%%06d.jpg", segName))
 
 	cmd := exec.Command("ffmpeg",
 		"-i", videoPath,
@@ -49,16 +52,17 @@ func ExtractFramesTime(videoPath, outputDir string, intervalSec, quality int) ([
 		return nil, fmt.Errorf("reading output dir: %w", err)
 	}
 
+	prefix := fmt.Sprintf("frame_%s_", segName)
 	var frames []models.FrameMetadata
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jpg") {
 			continue
 		}
-		if !strings.HasPrefix(e.Name(), "frame_") {
+		if !strings.HasPrefix(e.Name(), prefix) {
 			continue
 		}
 
-		numStr := strings.TrimPrefix(e.Name(), "frame_")
+		numStr := strings.TrimPrefix(e.Name(), prefix)
 		numStr = strings.TrimSuffix(numStr, ".jpg")
 		frameNum, err := strconv.Atoi(numStr)
 		if err != nil {
@@ -151,6 +155,21 @@ func WriteManifest(outputDir string, frames []models.FrameMetadata) error {
 		return fmt.Errorf("marshaling manifest: %w", err)
 	}
 	return os.WriteFile(path, data, 0o644)
+}
+
+// LoadManifest reads frame metadata from an existing manifest.json.
+// Returns nil, nil if no manifest exists yet.
+func LoadManifest(dir string) ([]models.FrameMetadata, error) {
+	path := filepath.Join(dir, "manifest.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var frames []models.FrameMetadata
+	return frames, json.Unmarshal(data, &frames)
 }
 
 // parseVideoPath extracts camera_id and segment start time from a video path.

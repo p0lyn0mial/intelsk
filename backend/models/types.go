@@ -70,9 +70,29 @@ type ProcessHistoryEntry struct {
 }
 
 type CameraInfo struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Type      string         `json:"type"`
+	Config    map[string]any `json:"config"`
+	Status    string         `json:"status"`
+	CreatedAt string         `json:"created_at,omitempty"`
+	UpdatedAt string         `json:"updated_at,omitempty"`
+}
+
+type CreateCameraRequest struct {
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	Type   string         `json:"type"`
+	Config map[string]any `json:"config,omitempty"`
+}
+
+type UpdateCameraRequest struct {
+	Name   string         `json:"name,omitempty"`
+	Config map[string]any `json:"config,omitempty"`
+}
+
+type DownloadRequest struct {
+	URL string `json:"url"`
 }
 
 type SettingsResponse struct {

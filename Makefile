@@ -1,4 +1,4 @@
-.PHONY: run setup
+.PHONY: run setup clean
 
 # One-time setup: create Python venv, install pip deps, install npm deps, fetch Go modules.
 setup:
@@ -9,6 +9,14 @@ setup:
 	@echo "Fetching Go modules..."
 	cd backend && go mod download
 	@echo "Setup complete."
+
+# Remove extracted frames, database, and process history.
+# Source videos in data/videos/ are preserved.
+clean:
+	rm -rf data/frames
+	rm -f data/intelsk.db
+	rm -f data/process_history.json
+	@echo "Cleaned frames, database, and process history. Videos preserved."
 
 # Start all services: ML sidecar, Go backend, and frontend dev server.
 # Run 'make setup' first if you haven't already.
