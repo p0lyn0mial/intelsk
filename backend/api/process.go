@@ -261,7 +261,8 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 }
 
 // downloadFromNVR downloads recordings from the NVR for a hikvision camera.
-func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, dates []string) {
+// Returns true if any new recordings were downloaded.
+func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, dates []string) bool {
 	nvrIP := h.settings.Get("nvr.ip")
 	if nvrIP == "" {
 		job.eventCh <- services.ProgressEvent{
@@ -269,7 +270,7 @@ func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, 
 			CameraID: cam.ID,
 			Message:  "NVR IP not configured in settings",
 		}
-		return
+		return false
 	}
 	nvrUsername := h.settings.Get("nvr.username")
 	nvrPassword := h.settings.Get("nvr.password")
@@ -277,6 +278,7 @@ func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, 
 	nvrClient := services.NewHikvisionClient(nvrIP, nvrUsername, nvrPassword)
 
 	channel := services.NVRChannel(cam)
+	downloaded := 0
 
 	for _, date := range dates {
 		dayStart, err := time.Parse("2006-01-02", date)
@@ -303,25 +305,47 @@ func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, 
 		}
 
 		if len(recordings) == 0 {
+			job.eventCh <- services.ProgressEvent{
+				Stage:    "downloading",
+				CameraID: cam.ID,
+				Message:  fmt.Sprintf("No recordings found for %s on %s", cam.Name, date),
+			}
 			continue
 		}
 
 		videosDir := filepath.Join(h.cfg.App.DataDir, "videos", cam.ID, date)
 		os.MkdirAll(videosDir, 0o755)
 
-		for _, rec := range recordings {
+		// Clean up stale .tmp files from previous failed downloads
+		cleanTmpFiles(videosDir)
+
+		total := len(recordings)
+		for i, rec := range recordings {
 			filename := fmt.Sprintf("%s.mp4", rec.StartTime.Format("1504"))
 			outputPath := filepath.Join(videosDir, filename)
 
-			// Skip if already downloaded
+			// Handle filename collision: if file exists, try _1, _2, etc.
 			if _, err := os.Stat(outputPath); err == nil {
-				continue
+				base := rec.StartTime.Format("1504")
+				found := false
+				for j := 1; j <= 100; j++ {
+					candidate := filepath.Join(videosDir, fmt.Sprintf("%s_%d.mp4", base, j))
+					if _, err := os.Stat(candidate); os.IsNotExist(err) {
+						outputPath = candidate
+						filename = fmt.Sprintf("%s_%d.mp4", base, j)
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
 			}
 
 			job.eventCh <- services.ProgressEvent{
 				Stage:    "downloading",
 				CameraID: cam.ID,
-				Message:  fmt.Sprintf("Downloading %s %s-%s...", cam.Name, rec.StartTime.Format("15:04"), rec.EndTime.Format("15:04")),
+				Message:  fmt.Sprintf("Downloading %s %s-%s (%d/%d)...", cam.Name, rec.StartTime.Format("15:04"), rec.EndTime.Format("15:04"), i+1, total),
 			}
 
 			if err := nvrClient.DownloadClip(rec.PlaybackURI, outputPath); err != nil {
@@ -331,7 +355,27 @@ func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, 
 					CameraID: cam.ID,
 					Message:  fmt.Sprintf("Download failed for %s: %v", filename, err),
 				}
+				continue
 			}
+			downloaded++
+		}
+	}
+
+	if downloaded > 0 {
+		h.cameraSvc.InvalidateThumbnail(cam.ID)
+	}
+	return downloaded > 0
+}
+
+// cleanTmpFiles removes stale .tmp files from a directory.
+func cleanTmpFiles(dir string) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".tmp") {
+			os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
 }

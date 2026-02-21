@@ -160,24 +160,7 @@ func (c *HikvisionClient) GetDeviceInfo() (*DeviceInfo, error) {
 // SearchRecordings searches for recordings on the NVR for a given channel and time range.
 func (c *HikvisionClient) SearchRecordings(channel int, start, end time.Time) ([]Recording, error) {
 	trackID := channel*100 + 1 // e.g., channel 1 → trackID 101
-	searchXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
-<CMSearchDescription>
-  <searchID>%s</searchID>
-  <trackIDList>
-    <trackID>%d</trackID>
-  </trackIDList>
-  <timeSpanList>
-    <timeSpan>
-      <startTime>%s</startTime>
-      <endTime>%s</endTime>
-    </timeSpan>
-  </timeSpanList>
-  <maxResults>500</maxResults>
-  <searchResultPostion>0</searchResultPostion>
-  <metadataList>
-    <metadataDescriptor>//recordType.meta.std-cgi.com</metadataDescriptor>
-  </metadataList>
-</CMSearchDescription>`,
+	searchXML := fmt.Sprintf(`<CMSearchDescription version="1.0"><searchID>%s</searchID><trackList><trackID>%d</trackID></trackList><timeSpanList><timeSpan><startTime>%s</startTime><endTime>%s</endTime></timeSpan></timeSpanList><maxResults>500</maxResults><searchResultPostion>0</searchResultPostion></CMSearchDescription>`,
 		generateSearchID(),
 		trackID,
 		start.Format("2006-01-02T15:04:05Z"),
@@ -205,15 +188,16 @@ func (c *HikvisionClient) SearchRecordings(channel int, start, end time.Time) ([
 }
 
 // DownloadClip downloads a recording from the NVR to the given output path.
-// Uses POST /ISAPI/ContentMgmt/download with the playbackURI from search results.
+// Uses POST /ISAPI/ContentMgmt/download with a downloadRequest XML body.
+// Writes to a .tmp file first and renames on success to avoid partial downloads.
 func (c *HikvisionClient) DownloadClip(playbackURI, outputPath string) error {
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
 
-	// XML-encode & in the playbackURI (required by ISAPI)
+	// XML-encode & in the playbackURI (required by XML)
 	safeURI := strings.ReplaceAll(playbackURI, "&", "&amp;")
-	downloadXML := fmt.Sprintf(`<downloadRequest><playbackURI>%s</playbackURI></downloadRequest>`, safeURI)
+	downloadXML := fmt.Sprintf(`<downloadRequest version="1.0"><playbackURI>%s</playbackURI></downloadRequest>`, safeURI)
 
 	downloadURL := fmt.Sprintf("https://%s/ISAPI/ContentMgmt/download", c.ip)
 
@@ -222,7 +206,7 @@ func (c *HikvisionClient) DownloadClip(playbackURI, outputPath string) error {
 	c.client.Timeout = 30 * time.Minute
 	defer func() { c.client.Timeout = oldTimeout }()
 
-	resp, err := c.doDigest("GET", downloadURL, strings.NewReader(downloadXML))
+	resp, err := c.doDigest("POST", downloadURL, strings.NewReader(downloadXML))
 	if err != nil {
 		return fmt.Errorf("download request: %w", err)
 	}
@@ -233,15 +217,22 @@ func (c *HikvisionClient) DownloadClip(playbackURI, outputPath string) error {
 		return fmt.Errorf("download returned %d: %s", resp.StatusCode, string(body))
 	}
 
-	out, err := os.Create(outputPath)
+	tmpPath := outputPath + ".tmp"
+	out, err := os.Create(tmpPath)
 	if err != nil {
-		return fmt.Errorf("creating output file: %w", err)
+		return fmt.Errorf("creating temp file: %w", err)
 	}
-	defer out.Close()
 
 	if _, err := io.Copy(out, resp.Body); err != nil {
-		os.Remove(outputPath)
+		out.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("saving download: %w", err)
+	}
+	out.Close()
+
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("finalizing download: %w", err)
 	}
 	return nil
 }
@@ -367,7 +358,9 @@ func urlPath(rawURL string) string {
 }
 
 func generateSearchID() string {
-	return fmt.Sprintf("search-%d", time.Now().UnixNano())
+	return fmt.Sprintf("{%08X-%04X-%04X-%04X-%04X%08X}",
+		rand.Int31(), rand.Int31n(0xFFFF), rand.Int31n(0xFFFF),
+		rand.Int31n(0xFFFF), rand.Int31n(0xFFFF), rand.Int31())
 }
 
 // XML response parsing for search results

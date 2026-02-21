@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -82,7 +82,16 @@ export default function ProcessPage() {
     }
   };
 
+  const logRef = useRef<HTMLDivElement>(null);
   const lastEvent = events[events.length - 1];
+  const hasErrors = events.some((e) => e.stage === 'error');
+
+  // Auto-scroll log to bottom on new events
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [events.length]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-8">
@@ -154,26 +163,60 @@ export default function ProcessPage() {
           >
             {processing ? t('process.processing') : t('process.button')}
           </button>
-          {processReady && (
+          {processReady && !hasErrors && (
             <span className="text-sm text-green-600 font-medium">
               {t('process.ready')}
             </span>
           )}
+          {processReady && hasErrors && (
+            <span className="text-sm text-amber-600 font-medium">
+              Completed with errors
+            </span>
+          )}
         </div>
 
-        {/* Progress bar */}
-        {processing && (
+        {/* Progress area */}
+        {(processing || events.length > 0) && (
           <div className="space-y-2">
-            <div className="w-full bg-gray-200 rounded-full h-2.5">
-              <div
-                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            {lastEvent && (
-              <p className="text-sm text-gray-600">
+            {/* Progress bar */}
+            {processing && (
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div
+                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+            )}
+
+            {/* Current status */}
+            {processing && lastEvent && (
+              <p className="text-sm text-gray-600 font-medium">
                 {lastEvent.message}
               </p>
+            )}
+
+            {/* Scrollable event log */}
+            {events.length > 0 && (
+              <div ref={logRef} className="max-h-48 overflow-y-auto border rounded-md bg-gray-50 p-2 space-y-0.5">
+                {events.map((ev, i) => (
+                  <p
+                    key={i}
+                    className={`text-xs font-mono ${
+                      ev.stage === 'error'
+                        ? 'text-red-600'
+                        : ev.stage === 'complete'
+                          ? 'text-green-600'
+                          : ev.stage === 'downloading'
+                            ? 'text-blue-600'
+                            : ev.stage === 'skipped'
+                              ? 'text-gray-400'
+                              : 'text-gray-600'
+                    }`}
+                  >
+                    {ev.message}
+                  </p>
+                ))}
+              </div>
             )}
           </div>
         )}
