@@ -331,32 +331,51 @@ Goal: add person identification alongside text search, using discovery-based enr
 
 ---
 
-## Phase 9: Hikvision Camera Integration
+## Phase 9: Hikvision NVR Integration
 
-Goal: automated video download from Hikvision cameras, replacing manually placed
-MP4 files. Until this phase, videos are placed in `data/videos/` manually.
+Goal: automated video download from Hikvision NVR, live streaming, and snapshots.
 
-### 9.1 Hikvision ISAPI Client (`backend/services/downloader.go`)
-- [ ] HTTP Digest Auth using Go's `net/http` + digest auth library
-- [ ] `SearchRecordings(camera, start, end)` — POST to `/ISAPI/ContentMgmt/search`,
+### 9.1 Hikvision ISAPI Client (`backend/services/hikvision.go`)
+- [x] HTTP Digest Auth (custom implementation, no external library)
+- [x] `SearchRecordings(channel, start, end)` — POST to `/ISAPI/ContentMgmt/search`,
       parse XML response
-- [ ] `DownloadClip(camera, start, end, outputPath)` — download via ISAPI or
-      RTSP+ffmpeg fallback
-- [ ] `GetSnapshot(camera)` — GET single frame from camera
-- [ ] Chunked download: split date range into 1-hour segments
-- [ ] Skip existing files (resume support)
-- [ ] Error handling: connection timeouts, auth failures, no recordings found
+- [x] `DownloadClip(playbackURI, outputPath)` — POST to `/ISAPI/ContentMgmt/download`
+      with XML body, atomic writes via `.tmp` rename
+- [x] `Snapshot(channel)` — GET single frame from NVR channel
+- [x] `Ping()` / `GetDeviceInfo()` — connectivity and credential checks
+- [x] Skip existing files (resume support)
+- [x] Filename collision handling (`_1`, `_2` suffixes for same-minute recordings)
+- [x] Error handling: connection timeouts, auth failures, no recordings found
+- [x] Stale `.tmp` file cleanup before downloads
 
 ### 9.2 Pipeline Integration
-- [ ] Wire downloader into `pipeline.go` — download step before extraction
-- [ ] Update `POST /api/process` to trigger download → extract → index
-- [ ] Update CLI: `go run ./backend download --camera front_door --date 2026-02-18`
+- [x] Wire NVR download into `process.go` — download step before extraction
+- [x] `POST /api/process` triggers download → extract → index for Hikvision cameras
+- [x] Download progress events with counters (`"Downloading 3/12..."`)
+- [x] Thumbnail cache invalidation after new downloads
 
 ### 9.3 Camera Snapshot Proxy
-- [ ] `GET /api/cameras/{id}/snapshot` — proxy live snapshot from camera via ISAPI
-- [ ] Camera dashboard shows live snapshots (previously static/placeholder)
+- [x] `GET /api/cameras/{id}/snapshot` — proxy live snapshot from NVR via ISAPI
+- [x] Camera dashboard shows live thumbnails from NVR channels
 
-### 9.4 Verification
-- [ ] Download a real clip from a test Hikvision camera
-- [ ] Full pipeline: download → extract → index → search
-- [ ] Camera dashboard shows live snapshots from real cameras
+### 9.4 Live Streaming
+- [x] `POST /api/cameras/{id}/stream/start` — start RTSP → HLS transcoding via ffmpeg
+- [x] `GET /api/cameras/{id}/stream/{file}` — serve HLS stream segments
+- [x] `POST /api/cameras/{id}/stream/stop` — stop stream and clean up
+- [x] `LiveStreamModal` component in frontend
+
+### 9.5 NVR Settings
+- [x] Global NVR settings in SQLite (`nvr.ip`, `nvr.username`, `nvr.password`, `nvr.rtsp_port`)
+- [x] `GET /api/settings/nvr/status` — test NVR connectivity and display device info
+- [x] Settings page UI for NVR configuration
+
+### 9.6 Camera Management
+- [x] Camera type `"hikvision"` with `nvr_channel` config
+- [x] Camera CRUD via web UI (replaced YAML-based camera config)
+- [x] Per-camera settings: `process_on_upload`, `transcode`
+
+### 9.7 Verification
+- [x] Download real clips from Hikvision NVR (DS-7616NXI-K2, firmware V4.84)
+- [x] Full pipeline: NVR search → download → extract → index → search
+- [x] Camera dashboard shows live snapshots from NVR channels
+- [x] Live stream playback in browser

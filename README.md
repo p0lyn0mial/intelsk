@@ -82,25 +82,33 @@ intelsk/
     main.go              # CLI entry point (extract, process, index, search, serve)
     cmd/server/          # HTTP server setup (Chi router)
     api/                 # HTTP handlers (process, search, cameras, videos, settings)
+      cameras.go         # camera CRUD, upload, snapshot, live stream
+      process.go         # process pipeline + NVR download
+      search.go          # text search
+      settings.go        # settings + NVR status
+      videos.go          # video playback
+      helpers.go         # shared utilities
     config/config.go     # YAML config loader
     models/types.go      # shared types
     services/
-      extractor.go       # frame extraction + dedup
-      mlclient.go        # HTTP client for ML sidecar
-      storage.go         # SQLite storage (embeddings)
-      settings.go        # runtime settings (DB-backed, in-memory cached)
-      pipeline.go        # indexing pipeline with resume support
       camera.go          # camera CRUD, video management, data cleanup
+      extractor.go       # frame extraction + dedup
+      hikvision.go       # Hikvision NVR ISAPI client (digest auth, search, download)
+      mlclient.go        # HTTP client for ML sidecar
+      pipeline.go        # indexing pipeline with resume support
+      settings.go        # runtime settings (DB-backed, in-memory cached)
+      storage.go         # SQLite storage (embeddings)
+      streamer.go        # live stream management (RTSP → HLS via ffmpeg)
   mlservice/             # Python ML sidecar
     main.py              # FastAPI app
-    clip_encoder.py      # MobileCLIP2 image/text encoding
+    clip_encoder.py      # CLIP image/text encoding (switchable models)
     searcher.py          # CLIP cosine similarity search
     requirements.txt
     run.sh
   frontend/              # React web UI
     src/
-      pages/             # MainPage (search), CamerasPage, CameraDetailPage, ProcessPage, SettingsPage
-      components/        # NavBar, ResultCard, VideoPlayerModal, CameraModals
+      pages/             # MainPage, CamerasPage, CameraDetailPage, ProcessPage, SettingsPage
+      components/        # NavBar, ResultCard, VideoPlayerModal, LiveStreamModal, CameraModals
       api/               # API client + TypeScript types
       i18n/              # EN/PL translations
       hooks/             # useVideoPlayer, useSearchHistory
@@ -108,7 +116,7 @@ intelsk/
   data/                  # runtime data (gitignored)
     videos/              # source MP4 files
     frames/              # extracted JPEGs + manifests
-    intelsk.db           # SQLite database (embeddings)
+    intelsk.db           # SQLite database (embeddings + settings)
 ```
 
 ## CLI Reference
@@ -165,12 +173,15 @@ Usage: backend serve [flags]
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/health` | Health check (includes ML sidecar status) |
-| POST | `/api/process` | Start extract + index pipeline |
+| POST | `/api/process` | Start extract + index pipeline (downloads from NVR for Hikvision cameras) |
 | GET | `/api/process/status?job_id=` | SSE progress stream |
 | GET | `/api/process/history` | List processed camera+date combos |
 | POST | `/api/search/text` | CLIP text search |
 | GET | `/api/settings` | Get all settings (with defaults) |
 | PUT | `/api/settings` | Update settings |
+| GET | `/api/settings/nvr/status` | Test NVR connectivity and get device info |
+| GET | `/api/clip/model` | Get current CLIP model info |
+| POST | `/api/clip/model` | Switch CLIP model preset |
 | GET | `/api/cameras` | List cameras |
 | GET | `/api/cameras/{id}` | Get camera by ID |
 | POST | `/api/cameras` | Create camera |
@@ -181,6 +192,11 @@ Usage: backend serve [flags]
 | DELETE | `/api/cameras/{id}/videos` | Delete a single video file |
 | DELETE | `/api/cameras/{id}/data` | Delete all data (videos, frames, embeddings) |
 | POST | `/api/cameras/{id}/upload` | Upload .mp4 files |
+| GET | `/api/cameras/{id}/upload/status` | SSE stream for upload job progress |
+| GET | `/api/cameras/{id}/snapshot` | Get camera thumbnail/snapshot |
+| POST | `/api/cameras/{id}/stream/start` | Start live stream (Hikvision RTSP → HLS) |
+| GET | `/api/cameras/{id}/stream/{file}` | Serve HLS stream segments |
+| POST | `/api/cameras/{id}/stream/stop` | Stop live stream |
 | GET | `/api/videos/{video_id}/play` | Stream video with seeking |
 | GET | `/api/frames/*` | Serve frame images |
 
@@ -200,6 +216,11 @@ changes and take effect immediately without a restart.
 | `extraction.dedup_enabled` | true | — |
 | `extraction.dedup_phash_threshold` | 8 | 0 - 64 |
 | `clip.batch_size` | 32 | 1 - 256 |
+| `clip.model` | mobileclip-s0 | — |
+| `nvr.ip` | *(empty)* | — |
+| `nvr.rtsp_port` | 554 | 1 - 65535 |
+| `nvr.username` | *(empty)* | — |
+| `nvr.password` | *(empty)* | — |
 
 ### Startup config (YAML)
 
@@ -226,4 +247,4 @@ See [doc/roadmap.md](doc/roadmap.md) for the full phase breakdown.
 | 6 | Planned | Polish + hardening + Docker |
 | 7 | Planned | Polish language query translation |
 | 8 | Planned | Face recognition |
-| 9 | Planned | Hikvision camera integration |
+| 9 | Done | Hikvision NVR integration (ISAPI search/download, live stream, snapshots) |

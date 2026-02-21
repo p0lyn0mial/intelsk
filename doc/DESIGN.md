@@ -113,67 +113,69 @@ intelsk/
     face-enrollment.md
     roadmap.md
   config/
-    cameras.yaml                 # camera definitions
+    app.yaml                     # app + server + ML + storage settings
     extraction.yaml              # frame extraction settings
-    download.yaml                # download settings
-    app.yaml                     # app + model + DB config
   backend/                       # Go backend
     go.mod
     go.sum
-    main.go                      # entrypoint
+    main.go                      # entrypoint (extract, process, index, search, serve)
     cmd/
-      server/server.go           # HTTP server setup
+      server/server.go           # HTTP server setup (Chi router)
     api/
-      process.go                 # process pipeline endpoint + SSE progress
-      search.go                  # search endpoints
-      cameras.go                 # camera endpoints
-      faces.go                   # face registry endpoints
+      cameras.go                 # camera CRUD, upload, snapshot, live stream
+      process.go                 # process pipeline + NVR download + SSE progress
+      search.go                  # text search endpoint
+      settings.go                # settings CRUD + NVR status check
+      videos.go                  # video playback (range requests)
+      helpers.go                 # shared HTTP utilities
     services/
-      downloader.go              # Hikvision ISAPI client
+      camera.go                  # camera CRUD, video management, thumbnails
       extractor.go               # frame extraction (ffmpeg subprocess)
+      hikvision.go               # Hikvision NVR ISAPI client (digest auth, search, download)
       mlclient.go                # HTTP client for Python ML sidecar
-      pipeline.go                # orchestrates download → extract → index
-      faceregistry.go            # face enrollment logic (JSON file)
-      storage.go                 # SQLite client (embeddings + metadata)
-      cleanup.go                 # data retention cleanup
+      pipeline.go                # indexing pipeline with resume support
+      settings.go                # runtime settings (DB-backed, in-memory cached)
+      storage.go                 # SQLite storage (embeddings, settings, schema)
+      streamer.go                # live stream management (RTSP → HLS via ffmpeg)
     config/
       config.go                  # YAML config loader
     models/
       types.go                   # shared types / structs
   mlservice/                     # Python ML sidecar
-    main.py                      # FastAPI app (3 endpoints)
-    clip_encoder.py              # CLIP model loading + encoding
-    face_encoder.py              # face detection + encoding
+    main.py                      # FastAPI app
+    clip_encoder.py              # CLIP model loading + encoding (switchable models)
+    searcher.py                  # CLIP cosine similarity search
     requirements.txt
+    run.sh
   frontend/
     package.json
     vite.config.ts
     src/
       App.tsx
+      main.tsx
       pages/
-        MainPage.tsx             # process + search (two-phase)
-        CamerasPage.tsx
-        FacesPage.tsx
+        MainPage.tsx             # search results page
+        CamerasPage.tsx          # camera list + management
+        CameraDetailPage.tsx     # per-camera videos/stats
+        ProcessPage.tsx          # process pipeline UI with event log
+        SettingsPage.tsx         # runtime settings editor
       components/
-        CameraSelector.tsx
-        DatePicker.tsx
-        ProcessProgress.tsx
-        SearchBar.tsx
-        ResultsGrid.tsx
-        ResultCard.tsx
-        FrameDetail.tsx
+        NavBar.tsx               # navigation header
+        ResultCard.tsx           # search result thumbnail + metadata
         PlayButtonOverlay.tsx    # play icon overlay on result thumbnails
         VideoPlayerModal.tsx     # inline video player modal
-        CameraGrid.tsx
-        FaceRegistry.tsx
+        LiveStreamModal.tsx      # live stream viewer (HLS)
+        CameraModals.tsx         # camera add/edit modals
       api/
-        client.ts                # API client (fetch wrapper)
+        client.ts                # API client (fetch wrapper + SSE)
         types.ts                 # TypeScript types
       hooks/
-        useProcess.ts
-        useSearch.ts
-        useCameras.ts
         useVideoPlayer.ts        # video player modal state management
+        useSearchHistory.ts      # search history persistence
+      i18n/
+        i18n.ts                  # i18n setup
+        en.json                  # English translations
+        pl.json                  # Polish translations
   experiments/                   # previous prototypes
     demo_search.py               # CLI CLIP search tool
     DEMO.md
@@ -182,16 +184,18 @@ intelsk/
     test_images/                 # CLIP search test images
     test_images_large/           # larger test dataset
   data/                          # gitignored, runtime data
-    videos/                      # downloaded MP4s
-    frames/                      # extracted JPEGs
-    intelsk.db                   # SQLite database (embeddings + metadata)
-    face_registry.json           # enrolled persons (kept indefinitely)
+    videos/                      # downloaded / uploaded MP4s
+    frames/                      # extracted JPEGs + manifests
+    intelsk.db                   # SQLite database (embeddings, settings, cameras)
     process_history.json         # tracks which camera+date combos are indexed
 ```
 
 ## Configuration
 
-All configuration lives in `config/` as YAML files.
+Configuration is split between startup YAML files (infrastructure paths, network
+addresses) and runtime SQLite settings (tunable parameters editable via the web UI).
+
+### Startup Config (YAML)
 
 ```yaml
 # config/app.yaml
@@ -202,30 +206,41 @@ app:
   log_level: info
 
 mlservice:
-  url: http://localhost:8001     # Python ML sidecar address
-
-clip:
-  model: MobileCLIP2-S0          # open_clip model name
-  pretrained: dfndr2b            # pretrained weights tag
-  image_mean: [0, 0, 0]         # custom normalization for S0/S2
-  image_std: [1, 1, 1]
-  device: cpu                    # cpu | cuda | mps
-  batch_size: 32
-
-face:
-  detection_model: hog           # hog (CPU) | cnn (GPU)
-  match_threshold: 0.6           # Euclidean distance threshold
-  registry_path: data/face_registry.json
+  url: http://localhost:8001
 
 storage:
-  db_path: data/intelsk.db       # SQLite database file
-  retention_days: 30             # purge frames, videos, embeddings older than N days
-                                 # set to 0 to disable automatic cleanup
-                                 # face registry is kept indefinitely
+  db_path: data/intelsk.db
+
+clip:
+  batch_size: 32
 
 process:
   history_path: data/process_history.json
 ```
+
+Extraction settings are in `config/extraction.yaml` — tunable parameters
+(interval, quality, dedup) are seeded from here on first run but afterwards
+controlled via the SQLite settings.
+
+### Runtime Settings (SQLite)
+
+Editable at runtime through the Settings page or `PUT /api/settings`:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `general.system_name` | CCTV Intelligence | Display name |
+| `search.min_score` | 0.18 | Minimum CLIP similarity score |
+| `search.default_limit` | 20 | Default search result count |
+| `extraction.time_interval_sec` | 5 | Seconds between extracted frames |
+| `extraction.output_quality` | 85 | JPEG quality (1–100) |
+| `extraction.dedup_enabled` | true | pHash deduplication |
+| `extraction.dedup_phash_threshold` | 8 | Hamming distance threshold (0–64) |
+| `clip.batch_size` | 32 | Frames per CLIP encoding batch |
+| `clip.model` | mobileclip-s0 | Active CLIP model preset |
+| `nvr.ip` | *(empty)* | Hikvision NVR IP address |
+| `nvr.rtsp_port` | 554 | NVR RTSP port |
+| `nvr.username` | *(empty)* | NVR login |
+| `nvr.password` | *(empty)* | NVR password |
 
 Camera-specific config is in [hikvision-downloader.md](hikvision-downloader.md#camera-configuration).
 Extraction settings are in [frame-extraction.md](frame-extraction.md#configuration).
@@ -314,10 +329,14 @@ date-fns
 - Automated data retention cleanup (configurable N-day rolling window)
 - Docker Compose for deployment (Go backend + ML sidecar + frontend)
 
-### Phase 9: Hikvision Camera Integration
-- Hikvision ISAPI client in Go (HTTP digest auth, chunked download)
-- Automated video download wired into the pipeline
-- Camera snapshot proxy for live dashboard
+### Phase 9: Hikvision NVR Integration (Done)
+- Hikvision ISAPI client in Go (`backend/services/hikvision.go`) with HTTP digest auth
+- Recording search and download via ISAPI (POST with XML body)
+- Automated NVR download wired into the process pipeline
+- Camera snapshot proxy for thumbnails
+- Live stream via RTSP → HLS transcoding (`backend/services/streamer.go`)
+- NVR connection settings in SQLite (shared across all Hikvision cameras)
+- Camera config in SQLite with web UI management (replaced YAML-based config)
 
 ## Data Lifecycle
 

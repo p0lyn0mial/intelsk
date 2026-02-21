@@ -357,6 +357,24 @@ func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, 
 				}
 				continue
 			}
+
+			// Transcode HEVC to H.264 if enabled for this camera
+			if services.ShouldTranscode(cam.Config) {
+				job.eventCh <- services.ProgressEvent{
+					Stage:    "transcoding",
+					CameraID: cam.ID,
+					Message:  fmt.Sprintf("Transcoding %s (%d/%d)...", filename, i+1, total),
+				}
+				if err := services.TranscodeIfNeeded(outputPath); err != nil {
+					log.Printf("Transcode failed for %s: %v", filename, err)
+					job.eventCh <- services.ProgressEvent{
+						Stage:    "error",
+						CameraID: cam.ID,
+						Message:  fmt.Sprintf("Transcode failed for %s: %v", filename, err),
+					}
+				}
+			}
+
 			downloaded++
 		}
 	}

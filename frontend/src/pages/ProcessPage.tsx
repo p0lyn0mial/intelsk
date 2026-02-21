@@ -208,9 +208,11 @@ export default function ProcessPage() {
                           ? 'text-green-600'
                           : ev.stage === 'downloading'
                             ? 'text-blue-600'
-                            : ev.stage === 'skipped'
-                              ? 'text-gray-400'
-                              : 'text-gray-600'
+                            : ev.stage === 'transcoding'
+                              ? 'text-purple-600'
+                              : ev.stage === 'skipped'
+                                ? 'text-gray-400'
+                                : 'text-gray-600'
                     }`}
                   >
                     {ev.message}
