@@ -100,6 +100,57 @@ func (c *MLClient) EncodeText(text string) ([]float64, error) {
 	return result.Embedding, nil
 }
 
+type ModelInfo struct {
+	Preset       string            `json:"preset"`
+	Model        string            `json:"model"`
+	EmbeddingDim int               `json:"embedding_dim"`
+	Presets      map[string]string `json:"presets,omitempty"`
+	Status       string            `json:"status,omitempty"`
+}
+
+func (c *MLClient) GetModelInfo() (*ModelInfo, error) {
+	resp, err := c.httpClient.Get(c.baseURL + "/model")
+	if err != nil {
+		return nil, fmt.Errorf("get model info request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("get model info returned %d: %s", resp.StatusCode, respBody)
+	}
+
+	var info ModelInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, fmt.Errorf("decoding model info response: %w", err)
+	}
+	return &info, nil
+}
+
+func (c *MLClient) ReloadModel(preset string) (*ModelInfo, error) {
+	body, err := json.Marshal(map[string]string{"preset": preset})
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Post(c.baseURL+"/reload",
+		"application/json", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("reload model request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("reload model returned %d: %s", resp.StatusCode, respBody)
+	}
+
+	var info ModelInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, fmt.Errorf("decoding reload model response: %w", err)
+	}
+	return &info, nil
+}
+
 func (c *MLClient) SearchByText(dbPath, text string, cameraIDs []string,
 	startTime, endTime string, limit int, minScore float64) ([]models.SearchResult, error) {
 	body, err := json.Marshal(map[string]any{

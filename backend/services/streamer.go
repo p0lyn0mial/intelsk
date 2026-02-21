@@ -53,6 +53,7 @@ func (s *Streamer) Start(cameraID, rtspURL string) error {
 		"-c:v", "libx264",
 		"-preset", "ultrafast",
 		"-tune", "zerolatency",
+		"-g", "40",
 		"-c:a", "aac",
 		"-f", "hls",
 		"-hls_time", "2",
@@ -62,7 +63,7 @@ func (s *Streamer) Start(cameraID, rtspURL string) error {
 		playlist,
 	)
 	cmd.Stdout = nil
-	cmd.Stderr = nil
+	cmd.Stderr = log.Writer()
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("starting ffmpeg: %w", err)

@@ -16,5 +16,18 @@ mlservice/__pycache__/
 node_modules/
 frontend/dist/
 
+# Compiled binaries
+backend/intelsk
+*.exe
+
+# Environment / secrets
+.env
+.env.*
+
+# Database files (safety net)
+*.db
+*.db-journal
+*.db-wal
+
 # macOS
 .DS_Store

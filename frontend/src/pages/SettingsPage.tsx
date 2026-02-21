@@ -254,7 +254,7 @@ export default function SettingsPage() {
       <a
         href="#"
         onClick={(e) => { e.preventDefault(); handleReset(fieldKey); }}
-        className="block text-xs text-blue-500 hover:text-blue-700 underline mt-1"
+        className="ml-2 text-xs text-blue-500 hover:text-blue-700 underline"
       >
         {defaultLabel}
       </a>
@@ -269,7 +269,10 @@ export default function SettingsPage() {
         <label key={field.key} className="block py-3">
           <div className="flex items-center justify-between mb-1">
             <span className="text-sm font-medium text-gray-700">{t(field.label)}</span>
-            <span className="text-xs text-gray-400">{t(field.hint)}</span>
+            <span className="text-xs text-gray-400">
+              {t(field.hint)}
+              {renderResetLink(field.key, field.type)}
+            </span>
           </div>
           <input
             type={field.type === 'password' ? 'password' : 'text'}
@@ -278,7 +281,6 @@ export default function SettingsPage() {
             onChange={(e) => handleChange(field.key, e.target.value)}
             className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
-          {renderResetLink(field.key, field.type)}
         </label>
       );
     }
@@ -287,8 +289,10 @@ export default function SettingsPage() {
         <label key={field.key} className="flex items-center justify-between py-3">
           <div>
             <div className="text-sm font-medium text-gray-700">{t(field.label)}</div>
-            <div className="text-xs text-gray-400">{t(field.hint)}</div>
-            {renderResetLink(field.key, field.type)}
+            <div className="text-xs text-gray-400">
+              {t(field.hint)}
+              {renderResetLink(field.key, field.type)}
+            </div>
           </div>
           <input
             type="checkbox"
@@ -303,7 +307,10 @@ export default function SettingsPage() {
       <label key={field.key} className="block py-3">
         <div className="flex items-center justify-between mb-1">
           <span className="text-sm font-medium text-gray-700">{t(field.label)}</span>
-          <span className="text-xs text-gray-400">{t(field.hint)}</span>
+          <span className="text-xs text-gray-400">
+            {t(field.hint)}
+            {renderResetLink(field.key, field.type)}
+          </span>
         </div>
         <input
           type="number"
@@ -318,7 +325,6 @@ export default function SettingsPage() {
           }}
           className="w-full rounded border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
         />
-        {renderResetLink(field.key, field.type)}
       </label>
     );
   };
@@ -411,6 +417,16 @@ export default function SettingsPage() {
           {nvrStatus?.status === 'error' && nvrStatus.error && (
             <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-600">
               {nvrStatus.error}
+            </div>
+          )}
+          {nvrStatus?.status === 'connected' && (nvrStatus.device_name || nvrStatus.model) && (
+            <div className="mb-3 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700 space-y-0.5">
+              {nvrStatus.device_name && <p><span className="font-medium">{t('settings.nvr_device')}:</span> {nvrStatus.device_name}</p>}
+              {nvrStatus.model && <p><span className="font-medium">{t('settings.nvr_model')}:</span> {nvrStatus.model}{nvrStatus.firmware ? ` (${nvrStatus.firmware})` : ''}</p>}
+              {nvrStatus.serial && <p><span className="font-medium">{t('settings.nvr_serial')}:</span> {nvrStatus.serial}</p>}
+              {nvrStatus.channels !== undefined && nvrStatus.channels > 0 && (
+                <p><span className="font-medium">{t('settings.nvr_channels')}:</span> {nvrStatus.channels}</p>
+              )}
             </div>
           )}
           <div className="divide-y divide-gray-100">

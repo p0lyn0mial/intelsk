@@ -188,6 +188,11 @@ export async function getSettings(): Promise<SettingsResponse> {
 export interface NVRStatusResponse {
   status: 'connected' | 'error' | 'not_configured';
   error?: string;
+  device_name?: string;
+  model?: string;
+  serial?: string;
+  firmware?: string;
+  channels?: number;
 }
 
 export async function getNVRStatus(): Promise<NVRStatusResponse> {

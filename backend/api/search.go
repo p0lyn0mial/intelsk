@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -45,19 +46,39 @@ func (h *SearchHandler) TextSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	minScore := h.settings.GetFloat64("search.min_score")
+
+	// Request more results than needed to compensate for dedup filtering
+	fetchLimit := req.Limit * 4
+	if fetchLimit < 100 {
+		fetchLimit = 100
+	}
+
 	results, err := h.mlClient.SearchByText(
 		h.cfg.Storage.DBPath,
 		req.Query,
 		req.CameraIDs,
 		req.StartTime,
 		req.EndTime,
-		req.Limit,
+		fetchLimit,
 		minScore,
 	)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"search failed: %s"}`, err), http.StatusInternalServerError)
 		return
 	}
+
+	// Deduplicate: keep only the best-scoring frame per camera
+	// per time window (60s). Results are already sorted by score descending.
+	results = deduplicateResults(results, 60)
+
+	if len(results) > req.Limit {
+		results = results[:req.Limit]
+	}
+
+	// Sort by timestamp ascending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Timestamp < results[j].Timestamp
+	})
 
 	apiResults := make([]models.APISearchResult, len(results))
 	for i, r := range results {
@@ -169,4 +190,54 @@ func computeSeekOffset(timestamp, sourceVideo string) int {
 		return 0
 	}
 	return offset
+}
+
+// deduplicateResults removes near-duplicate search results. For each camera,
+// it keeps only the best-scoring frame per time window (windowSec seconds).
+// Results must be pre-sorted by descending score.
+func deduplicateResults(results []models.SearchResult, windowSec int) []models.SearchResult {
+	// Track accepted timestamps per camera
+	type accepted struct {
+		timestamps []time.Time
+	}
+	seen := make(map[string]*accepted)
+
+	var out []models.SearchResult
+	for _, r := range results {
+		key := r.CameraID
+		ts := parseTimestamp(r.Timestamp)
+
+		if a, ok := seen[key]; ok {
+			tooClose := false
+			for _, prev := range a.timestamps {
+				diff := ts.Sub(prev)
+				if diff < 0 {
+					diff = -diff
+				}
+				if diff < time.Duration(windowSec)*time.Second {
+					tooClose = true
+					break
+				}
+			}
+			if tooClose {
+				continue
+			}
+			a.timestamps = append(a.timestamps, ts)
+		} else {
+			seen[key] = &accepted{timestamps: []time.Time{ts}}
+		}
+
+		out = append(out, r)
+	}
+	return out
+}
+
+func parseTimestamp(ts string) time.Time {
+	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04:05"} {
+		t, err := time.Parse(layout, ts)
+		if err == nil {
+			return t
+		}
+	}
+	return time.Time{}
 }

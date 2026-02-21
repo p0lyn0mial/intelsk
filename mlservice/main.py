@@ -2,10 +2,10 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from clip_encoder import CLIPEncoder
+from clip_encoder import CLIPEncoder, MODEL_PRESETS
 from searcher import Searcher
 
 encoder: CLIPEncoder | None = None
@@ -43,6 +43,10 @@ class SearchImageRequest(BaseModel):
     min_score: float = 0.18
 
 
+class ReloadRequest(BaseModel):
+    preset: str
+
+
 # --- Endpoints ---
 
 @app.get("/health")
@@ -74,3 +78,32 @@ def search_image(req: SearchImageRequest):
         min_score=req.min_score,
     )
     return {"results": results}
+
+
+@app.get("/model")
+def get_model():
+    preset_names = {k: v["name"] for k, v in MODEL_PRESETS.items()}
+    return {
+        "preset": encoder.preset_key,
+        "model": MODEL_PRESETS[encoder.preset_key]["name"],
+        "embedding_dim": int(encoder.embedding_dim),
+        "presets": preset_names,
+    }
+
+
+@app.post("/reload")
+def reload_model(req: ReloadRequest):
+    global encoder, searcher
+
+    if req.preset not in MODEL_PRESETS:
+        raise HTTPException(status_code=400, detail=f"unknown preset: {req.preset}")
+
+    encoder = CLIPEncoder(preset=req.preset)
+    searcher = Searcher(encoder)
+
+    return {
+        "status": "ok",
+        "model": MODEL_PRESETS[req.preset]["name"],
+        "preset": req.preset,
+        "embedding_dim": int(encoder.embedding_dim),
+    }

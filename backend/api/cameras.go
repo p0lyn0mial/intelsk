@@ -147,6 +147,7 @@ func (h *CamerasHandler) CleanData(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	h.svc.InvalidateThumbnail(id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "cleaned"})
 }
 
@@ -162,6 +163,7 @@ func (h *CamerasHandler) DeleteVideo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
+	h.svc.InvalidateThumbnail(id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
 }
 
@@ -206,6 +208,8 @@ func (h *CamerasHandler) Upload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "no .mp4 files found in upload"})
 		return
 	}
+
+	h.svc.InvalidateThumbnail(id)
 
 	cam, err := h.svc.Get(id)
 	if err != nil {
@@ -472,30 +476,37 @@ func (h *CamerasHandler) Snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if cam.Type != "hikvision" {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "snapshots only available for hikvision cameras"})
-		return
-	}
+	if cam.Type == "hikvision" {
+		nvrIP := h.settings.Get("nvr.ip")
+		if nvrIP == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "NVR IP not configured in settings"})
+			return
+		}
+		nvrUsername := h.settings.Get("nvr.username")
+		nvrPassword := h.settings.Get("nvr.password")
+		channel := services.NVRChannel(cam)
 
-	nvrIP := h.settings.Get("nvr.ip")
-	if nvrIP == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "NVR IP not configured in settings"})
-		return
-	}
-	nvrUsername := h.settings.Get("nvr.username")
-	nvrPassword := h.settings.Get("nvr.password")
-	channel := services.NVRChannel(cam)
+		client := services.NewHikvisionClient(nvrIP, nvrUsername, nvrPassword)
+		data, err := client.Snapshot(channel)
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("snapshot failed: %v", err)})
+			return
+		}
 
-	client := services.NewHikvisionClient(nvrIP, nvrUsername, nvrPassword)
-	data, err := client.Snapshot(channel)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]string{"error": fmt.Sprintf("snapshot failed: %v", err)})
-		return
-	}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "no-cache, no-store")
+		w.Write(data)
+	} else {
+		data, err := h.svc.Thumbnail(id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			return
+		}
 
-	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "no-cache, no-store")
-	w.Write(data)
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("Cache-Control", "public, max-age=300")
+		w.Write(data)
+	}
 }
 
 // StreamStart starts an HLS stream for a Hikvision camera.
@@ -523,7 +534,7 @@ func (h *CamerasHandler) StreamStart(w http.ResponseWriter, r *http.Request) {
 	}
 	nvrUsername := h.settings.Get("nvr.username")
 	nvrPassword := h.settings.Get("nvr.password")
-	rtspURL := services.CameraRTSPUrl(cam, nvrIP, nvrRTSPPort, nvrUsername, nvrPassword)
+	rtspURL := services.CameraRTSPUrl(cam, nvrIP, nvrRTSPPort, nvrUsername, nvrPassword, 2) // substream for live view
 	if err := h.streamer.Start(id, rtspURL); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("stream start failed: %v", err)})
 		return

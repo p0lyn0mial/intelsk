@@ -82,6 +82,23 @@ export interface ProcessHistoryEntry {
   indexed_at: string;
 }
 
+export interface UploadJobEvent {
+  stage: string;
+  file?: string;
+  current?: number;
+  total?: number;
+  frames_done?: number;
+  frames_total?: number;
+}
+
+export interface ModelInfo {
+  preset: string;
+  model: string;
+  embedding_dim: number;
+  presets?: Record<string, string>;
+  status?: string;
+}
+
 export type SettingsMap = Record<string, number | boolean | string>;
 
 export interface SettingsResponse {

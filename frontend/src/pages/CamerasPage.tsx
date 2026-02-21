@@ -35,6 +35,7 @@ export default function CamerasPage() {
     return acc;
   }, {});
 
+  const [snapshotTs] = useState(() => Date.now());
   const [showAdd, setShowAdd] = useState(false);
   const [editCamera, setEditCamera] = useState<CameraInfo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CameraInfo | null>(null);
@@ -72,18 +73,16 @@ export default function CamerasPage() {
               className="bg-white rounded-lg shadow p-4 hover:shadow-md transition-shadow"
             >
               <Link to={`/cameras/${cam.id}`} className="block">
-                {cam.type === 'hikvision' && (
-                  <div className="mb-2 rounded overflow-hidden bg-gray-100 aspect-video">
-                    <img
-                      src={`${getCameraSnapshotUrl(cam.id)}&t=${Math.floor(Date.now() / 10000)}`}
-                      alt={cam.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  </div>
-                )}
+                <div className="mb-2 rounded overflow-hidden bg-gray-100 aspect-video">
+                  <img
+                    src={`${getCameraSnapshotUrl(cam.id)}?t=${snapshotTs}`}
+                    alt={cam.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
                 <div className="flex items-center justify-between">
                   <h3 className="font-medium text-gray-900">{cam.name}</h3>
                   <div className="flex items-center gap-2">

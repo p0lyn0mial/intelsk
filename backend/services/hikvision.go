@@ -63,17 +63,98 @@ func (c *HikvisionClient) Snapshot(channel int) ([]byte, error) {
 }
 
 // Ping checks if the device is reachable.
+// Any HTTP response (even 401/403) means the NVR is online — only network errors are failures.
 func (c *HikvisionClient) Ping() error {
 	url := fmt.Sprintf("https://%s/ISAPI/System/status", c.ip)
-	resp, err := c.doDigest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return err
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("status %d", resp.StatusCode)
-	}
 	return nil
+}
+
+// DeviceInfo holds basic information about a Hikvision device.
+type DeviceInfo struct {
+	DeviceName   string `json:"device_name"`
+	Model        string `json:"model"`
+	SerialNumber string `json:"serial_number"`
+	FirmwareVer  string `json:"firmware_version"`
+	Channels     int    `json:"channels"`
+}
+
+// XML types for ISAPI device info
+type deviceInfoXML struct {
+	XMLName          xml.Name `xml:"DeviceInfo"`
+	DeviceName       string   `xml:"deviceName"`
+	Model            string   `xml:"model"`
+	SerialNumber     string   `xml:"serialNumber"`
+	FirmwareVersion  string   `xml:"firmwareVersion"`
+}
+
+type videoInputChannelListXML struct {
+	XMLName  xml.Name                `xml:"VideoInputChannelList"`
+	Channels []videoInputChannelXML  `xml:"VideoInputChannel"`
+}
+
+type videoInputChannelXML struct {
+	ID   int    `xml:"id"`
+	Name string `xml:"name"`
+}
+
+// GetDeviceInfo fetches authenticated device info and channel count from the NVR.
+// Unlike Ping, this verifies that credentials are correct.
+func (c *HikvisionClient) GetDeviceInfo() (*DeviceInfo, error) {
+	url := fmt.Sprintf("https://%s/ISAPI/System/deviceInfo", c.ip)
+	resp, err := c.doDigest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("device info request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("authentication failed: check username and password")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("device info returned %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading device info: %w", err)
+	}
+
+	var xmlInfo deviceInfoXML
+	if err := xml.Unmarshal(body, &xmlInfo); err != nil {
+		return nil, fmt.Errorf("parsing device info: %w", err)
+	}
+
+	info := &DeviceInfo{
+		DeviceName:   xmlInfo.DeviceName,
+		Model:        xmlInfo.Model,
+		SerialNumber: xmlInfo.SerialNumber,
+		FirmwareVer:  xmlInfo.FirmwareVersion,
+	}
+
+	// Try to get channel count
+	chURL := fmt.Sprintf("https://%s/ISAPI/System/Video/inputs/channels", c.ip)
+	chResp, err := c.doDigest("GET", chURL, nil)
+	if err == nil {
+		defer chResp.Body.Close()
+		if chResp.StatusCode == http.StatusOK {
+			chBody, _ := io.ReadAll(chResp.Body)
+			var chList videoInputChannelListXML
+			if xml.Unmarshal(chBody, &chList) == nil {
+				info.Channels = len(chList.Channels)
+			}
+		}
+	}
+
+	return info, nil
 }
 
 // SearchRecordings searches for recordings on the NVR for a given channel and time range.
@@ -338,9 +419,10 @@ func parseSearchResults(data []byte) ([]Recording, error) {
 }
 
 // RTSPUrl builds the RTSP URL for a Hikvision camera channel via the NVR.
-func RTSPUrl(ip string, rtspPort int, username, password string, channel int) string {
-	return fmt.Sprintf("rtsp://%s:%s@%s:%d/Streaming/Channels/%d01",
-		username, password, ip, rtspPort, channel)
+// streamType: 1 = main stream (high res), 2 = sub stream (low res).
+func RTSPUrl(ip string, rtspPort int, username, password string, channel, streamType int) string {
+	return fmt.Sprintf("rtsp://%s:%s@%s:%d/Streaming/Channels/%d0%d",
+		username, password, ip, rtspPort, channel, streamType)
 }
 
 // NVRChannel extracts the channel number from a hikvision camera config.

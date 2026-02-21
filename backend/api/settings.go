@@ -123,11 +123,12 @@ func (h *SettingsHandler) SwitchClipModel(w http.ResponseWriter, r *http.Request
 	writeJSON(w, http.StatusOK, info)
 }
 
-// NVRStatus tests connectivity to the NVR using the current settings.
+// NVRStatus tests connectivity and authentication to the NVR using the current settings.
+// Returns device info (model, serial, channels) on success.
 func (h *SettingsHandler) NVRStatus(w http.ResponseWriter, r *http.Request) {
 	ip := h.settings.Get("nvr.ip")
 	if ip == "" {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "not_configured"})
+		writeJSON(w, http.StatusOK, map[string]any{"status": "not_configured"})
 		return
 	}
 
@@ -135,13 +136,21 @@ func (h *SettingsHandler) NVRStatus(w http.ResponseWriter, r *http.Request) {
 	password := h.settings.Get("nvr.password")
 
 	client := services.NewHikvisionClient(ip, username, password)
-	if err := client.Ping(); err != nil {
-		writeJSON(w, http.StatusOK, map[string]string{
+	info, err := client.GetDeviceInfo()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{
 			"status": "error",
 			"error":  err.Error(),
 		})
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "connected"})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":      "connected",
+		"device_name": info.DeviceName,
+		"model":       info.Model,
+		"serial":      info.SerialNumber,
+		"firmware":    info.FirmwareVer,
+		"channels":    info.Channels,
+	})
 }

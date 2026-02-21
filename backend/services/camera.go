@@ -49,7 +49,7 @@ func (s *CameraService) List() ([]models.CameraInfo, error) {
 		if err := json.Unmarshal([]byte(configJSON), &cam.Config); err != nil {
 			cam.Config = map[string]any{}
 		}
-		cam.Status = s.computeStatus(cam.ID)
+		cam.Status = s.computeStatus(cam.ID, cam.Type)
 		dbCameras[cam.ID] = cam
 	}
 
@@ -81,7 +81,7 @@ func (s *CameraService) Get(id string) (*models.CameraInfo, error) {
 	if err := json.Unmarshal([]byte(configJSON), &cam.Config); err != nil {
 		cam.Config = map[string]any{}
 	}
-	cam.Status = s.computeStatus(cam.ID)
+	cam.Status = s.computeStatus(cam.ID, cam.Type)
 	return &cam, nil
 }
 
@@ -527,10 +527,13 @@ func (s *CameraService) cleanVideoFramesAndEmbeddings(cameraID, date, videoPath 
 	}
 }
 
-func (s *CameraService) computeStatus(cameraID string) string {
+func (s *CameraService) computeStatus(cameraID, cameraType string) string {
 	framesDir := filepath.Join(s.cfg.Extraction.StoragePath, cameraID)
 	dateEntries, err := os.ReadDir(framesDir)
 	if err != nil {
+		if cameraType == "hikvision" {
+			return "online"
+		}
 		return "offline"
 	}
 	for _, de := range dateEntries {
@@ -541,14 +544,115 @@ func (s *CameraService) computeStatus(cameraID string) string {
 			}
 		}
 	}
+	if cameraType == "hikvision" {
+		return "online"
+	}
 	return "offline"
 }
 
 // CameraRTSPUrl builds the RTSP URL for a hikvision camera using NVR settings.
 // The NVR IP, port, and credentials are passed in since cameras connect through the NVR.
-func CameraRTSPUrl(cam *models.CameraInfo, nvrIP string, nvrRTSPPort int, nvrUsername, nvrPassword string) string {
+// streamType: 1 = main stream (high res), 2 = sub stream (low res).
+func CameraRTSPUrl(cam *models.CameraInfo, nvrIP string, nvrRTSPPort int, nvrUsername, nvrPassword string, streamType int) string {
 	channel := NVRChannel(cam)
-	return RTSPUrl(nvrIP, nvrRTSPPort, nvrUsername, nvrPassword, channel)
+	return RTSPUrl(nvrIP, nvrRTSPPort, nvrUsername, nvrPassword, channel, streamType)
+}
+
+// Thumbnail returns a JPEG thumbnail for a local camera.
+// It checks for a cached file first, then tries extracted frames, and
+// finally falls back to extracting the first frame from a video with ffmpeg.
+func (s *CameraService) Thumbnail(id string) ([]byte, error) {
+	// 1. Check cache
+	cacheDir := filepath.Join(s.cfg.App.DataDir, "thumbnails")
+	cachePath := filepath.Join(cacheDir, id+".jpg")
+	if data, err := os.ReadFile(cachePath); err == nil {
+		return data, nil
+	}
+
+	// 2. Try extracted frames (newest date first)
+	framesDir := filepath.Join(s.cfg.Extraction.StoragePath, id)
+	if dateEntries, err := os.ReadDir(framesDir); err == nil {
+		// Sort dates newest first
+		sort.Slice(dateEntries, func(i, j int) bool {
+			return dateEntries[i].Name() > dateEntries[j].Name()
+		})
+		for _, de := range dateEntries {
+			if !de.IsDir() {
+				continue
+			}
+			dateDir := filepath.Join(framesDir, de.Name())
+			manifest, err := LoadManifest(dateDir)
+			if err != nil || len(manifest) == 0 {
+				continue
+			}
+			// Read the first frame JPEG
+			data, err := os.ReadFile(manifest[0].FramePath)
+			if err != nil {
+				continue
+			}
+			// Cache it
+			os.MkdirAll(cacheDir, 0o755)
+			os.WriteFile(cachePath, data, 0o644)
+			return data, nil
+		}
+	}
+
+	// 3. Fallback: extract first frame from latest video via ffmpeg
+	videosDir := filepath.Join(s.cfg.App.DataDir, "videos", id)
+	dateEntries, err := os.ReadDir(videosDir)
+	if err != nil {
+		return nil, fmt.Errorf("no videos found for camera %s", id)
+	}
+	// Sort dates newest first
+	sort.Slice(dateEntries, func(i, j int) bool {
+		return dateEntries[i].Name() > dateEntries[j].Name()
+	})
+	for _, de := range dateEntries {
+		if !de.IsDir() {
+			continue
+		}
+		dateDir := filepath.Join(videosDir, de.Name())
+		files, err := os.ReadDir(dateDir)
+		if err != nil {
+			continue
+		}
+		// Find latest .mp4 (sort descending by name)
+		var mp4s []string
+		for _, f := range files {
+			if !f.IsDir() && strings.HasSuffix(strings.ToLower(f.Name()), ".mp4") {
+				mp4s = append(mp4s, filepath.Join(dateDir, f.Name()))
+			}
+		}
+		if len(mp4s) == 0 {
+			continue
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(mp4s)))
+
+		// Extract first frame with ffmpeg
+		os.MkdirAll(cacheDir, 0o755)
+		cmd := exec.Command(
+			"ffmpeg", "-i", mp4s[0],
+			"-vframes", "1", "-q:v", "2",
+			"-y", cachePath,
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			log.Printf("ffmpeg thumbnail extraction failed for %s: %v: %s", mp4s[0], err, string(out))
+			continue
+		}
+		data, err := os.ReadFile(cachePath)
+		if err != nil {
+			return nil, fmt.Errorf("reading generated thumbnail: %w", err)
+		}
+		return data, nil
+	}
+
+	return nil, fmt.Errorf("no videos or frames found for camera %s", id)
+}
+
+// InvalidateThumbnail removes the cached thumbnail for a camera.
+func (s *CameraService) InvalidateThumbnail(id string) {
+	cachePath := filepath.Join(s.cfg.App.DataDir, "thumbnails", id+".jpg")
+	os.Remove(cachePath)
 }
 
 func (s *CameraService) removeFromProcessHistory(cameraID string) {

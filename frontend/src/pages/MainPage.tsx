@@ -60,7 +60,6 @@ export default function MainPage() {
         camera_ids: selectedCameras.length > 0 ? selectedCameras : undefined,
         start_time: datesChanged && startDate ? startDate : undefined,
         end_time: datesChanged && endDate ? endDate : undefined,
-        limit: 40,
       });
       setResults(res.results);
       setSearchQuery(res.query);
