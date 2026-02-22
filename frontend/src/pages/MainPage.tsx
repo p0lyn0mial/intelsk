@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -6,10 +6,14 @@ import {
   searchText,
 } from '../api/client';
 import type { SearchResult } from '../api/types';
+import { defaultTimeRange } from '../utils/time';
 import ResultCard from '../components/ResultCard';
 import VideoPlayerModal from '../components/VideoPlayerModal';
 import useVideoPlayer from '../hooks/useVideoPlayer';
 import useSearchHistory from '../hooks/useSearchHistory';
+
+const RESULTS_PER_PAGE = 16;
+const SEARCH_FETCH_LIMIT = 200;
 
 export default function MainPage() {
   const { t } = useTranslation();
@@ -22,11 +26,12 @@ export default function MainPage() {
   });
 
   // Filter state
+  const [defaults] = useState(defaultTimeRange);
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
-  const today = new Date().toISOString().split('T')[0];
-  const [startDate, setStartDate] = useState(today);
-  const [endDate, setEndDate] = useState(today);
-  const [datesChanged, setDatesChanged] = useState(false);
+  const [startDate, setStartDate] = useState(defaults.startDate);
+  const [endDate, setEndDate] = useState(defaults.endDate);
+  const [startTime, setStartTime] = useState(defaults.startTime);
+  const [endTime, setEndTime] = useState(defaults.endTime);
 
   // Search state
   const [query, setQuery] = useState('');
@@ -35,6 +40,10 @@ export default function MainPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showHistory, setShowHistory] = useState(false);
   const { history, addQuery, clearHistory } = useSearchHistory();
+
+  // Pagination
+  const [page, setPage] = useState(0);
+  const resultsRef = useRef<HTMLDivElement>(null);
 
   // Auto-select all cameras on load
   useEffect(() => {
@@ -55,13 +64,21 @@ export default function MainPage() {
     setSearching(true);
     try {
       const trimmed = query.trim();
+      const st = startDate
+        ? `${startDate}T${startTime || '00:00'}:00`
+        : undefined;
+      const et = endDate
+        ? `${endDate}T${endTime || '23:59'}:00`
+        : undefined;
       const res = await searchText({
         query: trimmed,
         camera_ids: selectedCameras.length > 0 ? selectedCameras : undefined,
-        start_time: datesChanged && startDate ? startDate : undefined,
-        end_time: datesChanged && endDate ? endDate : undefined,
+        start_time: st,
+        end_time: et,
+        limit: SEARCH_FETCH_LIMIT,
       });
       setResults(res.results);
+      setPage(0);
       setSearchQuery(res.query);
       addQuery(trimmed);
     } catch {
@@ -107,29 +124,45 @@ export default function MainPage() {
           </div>
         </div>
 
-        {/* Date range */}
+        {/* Date & time range */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('search.start_date')}
             </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => { setStartDate(e.target.value); setDatesChanged(true); }}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="flex-1 px-3 py-2 border rounded-md text-sm"
+              />
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-28 px-3 py-2 border rounded-md text-sm"
+              />
+            </div>
           </div>
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('search.end_date')}
             </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => { setEndDate(e.target.value); setDatesChanged(true); }}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="flex-1 px-3 py-2 border rounded-md text-sm"
+              />
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-28 px-3 py-2 border rounded-md text-sm"
+              />
+            </div>
           </div>
         </div>
 
@@ -181,26 +214,64 @@ export default function MainPage() {
       </section>
 
       {/* Results */}
-      {results.length > 0 && (
-        <section className="space-y-3">
-          <p className="text-sm text-gray-600">
-            {t('search.results_count', {
-              count: results.length,
-              query: searchQuery,
-            })}
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {results.map((r, i) => (
-              <ResultCard
-                key={r.frame_id}
-                result={r}
-                rank={i + 1}
-                onPlayVideo={openVideo}
-              />
-            ))}
-          </div>
-        </section>
-      )}
+      {results.length > 0 && (() => {
+        const totalPages = Math.ceil(results.length / RESULTS_PER_PAGE);
+        const pagedResults = results.slice(
+          page * RESULTS_PER_PAGE,
+          (page + 1) * RESULTS_PER_PAGE,
+        );
+        return (
+          <section ref={resultsRef} className="space-y-3">
+            <p className="text-sm text-gray-600">
+              {t('search.results_count', {
+                count: results.length,
+                query: searchQuery,
+              })}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {pagedResults.map((r, i) => (
+                <ResultCard
+                  key={r.frame_id}
+                  result={r}
+                  rank={page * RESULTS_PER_PAGE + i + 1}
+                  onPlayVideo={openVideo}
+                />
+              ))}
+            </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-4 pt-2">
+                <button
+                  onClick={() => {
+                    setPage((p) => p - 1);
+                    resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  disabled={page === 0}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                >
+                  {t('pagination.previous', 'Previous')}
+                </button>
+                <span className="text-sm text-gray-600">
+                  {t('pagination.page_of', {
+                    defaultValue: 'Page {{page}} of {{total}}',
+                    page: page + 1,
+                    total: totalPages,
+                  })}
+                </span>
+                <button
+                  onClick={() => {
+                    setPage((p) => p + 1);
+                    resultsRef.current?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  disabled={page >= totalPages - 1}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                >
+                  {t('pagination.next', 'Next')}
+                </button>
+              </div>
+            )}
+          </section>
+        );
+      })()}
 
       {searchQuery && results.length === 0 && !searching && (
         <p className="text-sm text-gray-500 text-center py-8">

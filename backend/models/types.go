@@ -31,6 +31,8 @@ type ProcessRequest struct {
 	CameraIDs []string `json:"camera_ids"`
 	StartDate string   `json:"start_date"`
 	EndDate   string   `json:"end_date"`
+	StartTime string   `json:"start_time,omitempty"`
+	EndTime   string   `json:"end_time,omitempty"`
 }
 
 type ProcessResponse struct {

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -163,7 +164,7 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 		// Check if this is a hikvision camera — download recordings from NVR
 		cam, camErr := h.cameraSvc.Get(camID)
 		if camErr == nil && cam.Type == "hikvision" {
-			h.downloadFromNVR(job, cam, dates)
+			h.downloadFromNVR(job, cam, dates, req.StartTime, req.EndTime)
 		}
 
 		for _, date := range dates {
@@ -260,9 +261,29 @@ func (h *ProcessHandler) runPipeline(job *jobState, req models.ProcessRequest) {
 	h.mu.Unlock()
 }
 
+// parseHHMM parses an "HH:MM" string into hour and minute components.
+func parseHHMM(s string) (hour, minute int, ok bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0, 0, false
+	}
+	parts := strings.SplitN(s, ":", 2)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	h, err1 := strconv.Atoi(parts[0])
+	m, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil || h < 0 || h > 23 || m < 0 || m > 59 {
+		return 0, 0, false
+	}
+	return h, m, true
+}
+
 // downloadFromNVR downloads recordings from the NVR for a hikvision camera.
+// startTime and endTime are optional "HH:MM" strings that constrain the query
+// window on the first and last date respectively.
 // Returns true if any new recordings were downloaded.
-func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, dates []string) bool {
+func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, dates []string, startTime, endTime string) bool {
 	nvrIP := h.settings.Get("nvr.ip")
 	if nvrIP == "" {
 		job.eventCh <- services.ProgressEvent{
@@ -280,12 +301,31 @@ func (h *ProcessHandler) downloadFromNVR(job *jobState, cam *models.CameraInfo, 
 	channel := services.NVRChannel(cam)
 	downloaded := 0
 
-	for _, date := range dates {
+	for i, date := range dates {
 		dayStart, err := time.Parse("2006-01-02", date)
 		if err != nil {
 			continue
 		}
 		dayEnd := dayStart.Add(24*time.Hour - time.Second)
+
+		// Apply time boundaries on the first and last dates
+		isFirst := i == 0
+		isLast := i == len(dates)-1
+		if isFirst {
+			if h, m, ok := parseHHMM(startTime); ok {
+				dayStart = dayStart.Add(time.Duration(h)*time.Hour + time.Duration(m)*time.Minute)
+			}
+		}
+		if isLast {
+			if h, m, ok := parseHHMM(endTime); ok {
+				dayEnd = time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(), h, m, 59, 0, dayStart.Location())
+				if !isFirst {
+					// For the last date (when it's a different day), use that date
+					lastDay, _ := time.Parse("2006-01-02", date)
+					dayEnd = time.Date(lastDay.Year(), lastDay.Month(), lastDay.Day(), h, m, 59, 0, lastDay.Location())
+				}
+			}
+		}
 
 		job.eventCh <- services.ProgressEvent{
 			Stage:    "downloading",

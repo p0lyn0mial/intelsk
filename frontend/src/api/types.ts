@@ -24,6 +24,8 @@ export interface ProcessRequest {
   camera_ids: string[];
   start_date: string;
   end_date: string;
+  start_time?: string;
+  end_time?: string;
 }
 
 export interface ProcessResponse {

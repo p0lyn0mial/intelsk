@@ -7,6 +7,7 @@ import {
   streamProcessStatus,
 } from '../api/client';
 import type { ProgressEvent } from '../api/types';
+import { defaultTimeRange } from '../utils/time';
 
 export default function ProcessPage() {
   const { t } = useTranslation();
@@ -18,9 +19,12 @@ export default function ProcessPage() {
   });
 
   // Form state
+  const [defaults] = useState(defaultTimeRange);
   const [selectedCameras, setSelectedCameras] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(defaults.startDate);
+  const [endDate, setEndDate] = useState(defaults.endDate);
+  const [startTime, setStartTime] = useState(defaults.startTime);
+  const [endTime, setEndTime] = useState(defaults.endTime);
 
   // Processing state
   const [processing, setProcessing] = useState(false);
@@ -54,6 +58,8 @@ export default function ProcessPage() {
         camera_ids: selectedCameras,
         start_date: startDate,
         end_date: endDate || startDate,
+        start_time: startTime || undefined,
+        end_time: endTime || undefined,
       });
 
       if (res.status === 'already_cached') {
@@ -128,29 +134,45 @@ export default function ProcessPage() {
           </div>
         </div>
 
-        {/* Date picker */}
+        {/* Date & time picker */}
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('process.start_date')}
             </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="flex-1 px-3 py-2 border rounded-md text-sm"
+              />
+              <input
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-28 px-3 py-2 border rounded-md text-sm"
+              />
+            </div>
           </div>
           <div className="flex-1">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t('process.end_date')}
             </label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
+            <div className="flex gap-2">
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="flex-1 px-3 py-2 border rounded-md text-sm"
+              />
+              <input
+                type="time"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="w-28 px-3 py-2 border rounded-md text-sm"
+              />
+            </div>
           </div>
         </div>
 
